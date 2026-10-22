@@ -1,0 +1,17 @@
+# Для сервера, де вже крутиться інший проєкт зі своїм reverse proxy (Caddy/nginx/Traefik).
+# Свій Caddy не піднімаємо — порти 80/443 зайняті. Lovec слухає лише локально на 8001,
+# а наявний проксі віддає його назовні по HTTPS.
+#   docker compose -f docker-compose.shared.yml up -d --build
+services:
+  lovec:
+    build: .
+    container_name: lovec
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+      - ./config.yaml:/app/config.yaml:ro
+    ports:
+      - "127.0.0.1:8001:8000"
+    mem_limit: 300m       # щоб скрейпер ніколи не з'їв пам'ять у Iveno
+    cpus: 0.5
