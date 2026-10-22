@@ -1,0 +1,68 @@
+# Lovec — конфіг пошуків.
+# Кожен пошук = одна сторінка-список на сайті. Скрейпер бере з неї посилання
+# на оголошення, відкриває нові і вирішує: приватна особа чи ріелтор.
+
+interval_minutes: 5          # як часто перевіряти (не ставити менше 3 — забанять)
+request_delay_seconds: [2, 5] # випадкова пауза між запитами
+max_new_per_run: 40          # скільки нових детальних сторінок відкривати за один прохід
+first_run_silent: true       # перший прохід лише наповнює БД, без пушів (інакше прилетить 500 штук)
+
+# Пороги класифікатора (див. lovec/classify.py)
+score:
+  private_max: 1     # score <= 1  -> "private"  (пуш)
+  suspicious_max: 3  # 2..3        -> "suspicious" (пуш з позначкою ⚠️)
+                     # >= 4        -> "agency" (тихо в БД)
+  phone_reuse_limit: 3  # той самий телефон у >=3 різних оголошеннях = ріелтор
+
+notify:
+  private: true
+  suspicious: true
+
+searches:
+  # ---------- Bazoš ----------
+  # hlokalita = PSČ центру, humkreis = радіус у км
+  - name: "Bazoš · byty predaj BA"
+    source: bazos
+    url: "https://reality.bazos.sk/predam/byt/?hlokalita=81101&humkreis=15"
+    deal: predaj
+  - name: "Bazoš · domy predaj BA"
+    source: bazos
+    url: "https://reality.bazos.sk/predam/dom/?hlokalita=81101&humkreis=20"
+    deal: predaj
+  - name: "Bazoš · byty prenájom BA"
+    source: bazos
+    url: "https://reality.bazos.sk/prenajmu/byt/?hlokalita=81101&humkreis=15"
+    deal: prenajom
+
+  # ---------- Nehnuteľnosti.sk ----------
+  # Сортування "найновіші" — щоб нові були на першій сторінці.
+  - name: "Nehnuteľnosti · byty predaj BA"
+    source: nehnutelnosti
+    url: "https://www.nehnutelnosti.sk/vysledky/byty/bratislava/predaj?order=NEWEST"
+    deal: predaj
+  - name: "Nehnuteľnosti · domy predaj BA"
+    source: nehnutelnosti
+    url: "https://www.nehnutelnosti.sk/vysledky/domy/bratislava/predaj?order=NEWEST"
+    deal: predaj
+  - name: "Nehnuteľnosti · byty prenájom BA"
+    source: nehnutelnosti
+    url: "https://www.nehnutelnosti.sk/vysledky/byty/bratislava/prenajom?order=NEWEST"
+    deal: prenajom
+
+  # ---------- Reality.sk ----------
+  - name: "Reality.sk · byty predaj BA"
+    source: reality_sk
+    url: "https://www.reality.sk/byty/bratislava/predaj/?order=created_date-newest"
+    deal: predaj
+  - name: "Reality.sk · byty prenájom BA"
+    source: reality_sk
+    url: "https://www.reality.sk/byty/bratislava/prenajom/?order=created_date-newest"
+    deal: prenajom
+
+  # ---------- TopReality.sk ----------
+  # Найпростіше: відкрий сайт, вистав фільтри (Bratislava, byty, predaj,
+  # zoradiť od najnovších), скопіюй URL з адресного рядка сюди.
+  - name: "TopReality · byty predaj BA"
+    source: topreality
+    url: "https://www.topreality.sk/vyhladavanie-nehnutelnosti.html?form=1&type%5B%5D=101&type%5B%5D=102&type%5B%5D=103&type%5B%5D=104&type%5B%5D=105&searchType=string&obec=d100%2Cd101%2Cd102%2Cd103%2Cd104&order=1"
+    deal: predaj

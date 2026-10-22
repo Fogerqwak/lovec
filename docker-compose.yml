@@ -1,0 +1,22 @@
+services:
+  lovec:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/app/data              # SQLite з лідами переживає перезбірки
+      - ./config.yaml:/app/config.yaml:ro  # міняєш пошуки без перезбірки: docker compose restart
+    ports:
+      - "127.0.0.1:8000:8000"         # назовні віддає Caddy з HTTPS (див. README)
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on: [lovec]
+
+volumes:
+  caddy_data:

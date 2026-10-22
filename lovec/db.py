@@ -1,0 +1,212 @@
+"""SQLite-сховище. Одне з'єднання на виклик + WAL — безпечно між потоками."""
+from __future__ import annotations
+
+import json
+import sqlite3
+import threading
+from contextlib import contextmanager
+from datetime import datetime, timezone
+from pathlib import Path
+
+from .models import Listing
+
+_lock = threading.Lock()
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS listings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key TEXT UNIQUE NOT NULL,
+    source TEXT NOT NULL,
+    ext_id TEXT NOT NULL,
+    url TEXT NOT NULL,
+    search_name TEXT,
+    deal TEXT,
+    title TEXT,
+    price_eur REAL,
+    price_text TEXT,
+    location TEXT,
+    description TEXT,
+    seller_name TEXT,
+    phones TEXT,
+    seller_listing_count INTEGER,
+    score INTEGER,
+    category TEXT,
+    reasons TEXT,
+    wants_no_rk INTEGER DEFAULT 0,
+    status TEXT DEFAULT 'new',
+    note TEXT DEFAULT '',
+    notified INTEGER DEFAULT 0,
+    tg_message_id INTEGER,
+    first_seen TEXT,
+    updated_at TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_listings_cat ON listings(category, first_seen);
+CREATE TABLE IF NOT EXISTS listing_phones (
+    listing_id INTEGER NOT NULL,
+    phone TEXT NOT NULL,
+    PRIMARY KEY (listing_id, phone)
+);
+CREATE INDEX IF NOT EXISTS ix_phone ON listing_phones(phone);
+CREATE TABLE IF NOT EXISTS phone_blacklist (
+    phone TEXT PRIMARY KEY,
+    reason TEXT,
+    added_at TEXT
+);
+CREATE TABLE IF NOT EXISTS seen_urls (
+    url TEXT PRIMARY KEY,
+    first_seen TEXT
+);
+CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT);
+"""
+
+
+def now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+class DB:
+    def __init__(self, path: str):
+        self.path = path
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        with self.conn() as c:
+            c.executescript(SCHEMA)
+
+    @contextmanager
+    def conn(self):
+        with _lock:
+            c = sqlite3.connect(self.path, timeout=30)
+            c.row_factory = sqlite3.Row
+            c.execute("PRAGMA journal_mode=WAL")
+            try:
+                yield c
+                c.commit()
+            finally:
+                c.close()
+
+    # ---- kv ----
+    def get_kv(self, k: str, default: str | None = None) -> str | None:
+        with self.conn() as c:
+            r = c.execute("SELECT v FROM kv WHERE k=?", (k,)).fetchone()
+            return r["v"] if r else default
+
+    def set_kv(self, k: str, v: str) -> None:
+        with self.conn() as c:
+            c.execute("INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", (k, v))
+
+    # ---- seen ----
+    def unseen(self, urls: list[str]) -> list[str]:
+        if not urls:
+            return []
+        with self.conn() as c:
+            q = ",".join("?" * len(urls))
+            seen = {r["url"] for r in c.execute(f"SELECT url FROM seen_urls WHERE url IN ({q})", urls)}
+        return [u for u in urls if u not in seen]
+
+    def mark_seen(self, url: str) -> None:
+        with self.conn() as c:
+            c.execute("INSERT OR IGNORE INTO seen_urls(url, first_seen) VALUES(?,?)", (url, now()))
+
+    # ---- phones ----
+    def phone_usage(self, phones: list[str], exclude_key: str | None = None) -> int:
+        """Скільки ІНШИХ оголошень мають хоч один з цих телефонів."""
+        if not phones:
+            return 0
+        with self.conn() as c:
+            q = ",".join("?" * len(phones))
+            sql = f"""SELECT COUNT(DISTINCT lp.listing_id) n FROM listing_phones lp
+                      JOIN listings l ON l.id = lp.listing_id
+                      WHERE lp.phone IN ({q})"""
+            args: list = list(phones)
+            if exclude_key:
+                sql += " AND l.key != ?"
+                args.append(exclude_key)
+            return c.execute(sql, args).fetchone()["n"]
+
+    def blacklisted(self, phones: list[str]) -> bool:
+        if not phones:
+            return False
+        with self.conn() as c:
+            q = ",".join("?" * len(phones))
+            return c.execute(f"SELECT 1 FROM phone_blacklist WHERE phone IN ({q})", phones).fetchone() is not None
+
+    def blacklist_listing_phones(self, listing_id: int, reason: str = "marked agent") -> None:
+        with self.conn() as c:
+            for r in c.execute("SELECT phone FROM listing_phones WHERE listing_id=?", (listing_id,)).fetchall():
+                c.execute("INSERT OR IGNORE INTO phone_blacklist VALUES(?,?,?)", (r["phone"], reason, now()))
+
+    # ---- listings ----
+    def save(self, l: Listing, search_name: str, deal: str) -> int:
+        with self.conn() as c:
+            c.execute(
+                """INSERT INTO listings(key,source,ext_id,url,search_name,deal,title,price_eur,price_text,
+                       location,description,seller_name,phones,seller_listing_count,score,category,reasons,
+                       wants_no_rk,first_seen,updated_at)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                   ON CONFLICT(key) DO NOTHING""",
+                (l.key, l.source, l.ext_id, l.url, search_name, deal, l.title, l.price_eur, l.price_text,
+                 l.location, l.description[:5000], l.seller_name, ",".join(l.phones), l.seller_listing_count,
+                 l.score, l.category, json.dumps(l.reasons, ensure_ascii=False), int(l.wants_no_rk), now(), now()),
+            )
+            row = c.execute("SELECT id FROM listings WHERE key=?", (l.key,)).fetchone()
+            lid = row["id"]
+            for p in l.phones:
+                c.execute("INSERT OR IGNORE INTO listing_phones VALUES(?,?)", (lid, p))
+            return lid
+
+    def exists(self, key: str) -> bool:
+        with self.conn() as c:
+            return c.execute("SELECT 1 FROM listings WHERE key=?", (key,)).fetchone() is not None
+
+    def mark_notified(self, lid: int, msg_id: int | None) -> None:
+        with self.conn() as c:
+            c.execute("UPDATE listings SET notified=1, tg_message_id=? WHERE id=?", (msg_id, lid))
+
+    def set_status(self, lid: int, status: str | None = None, note: str | None = None) -> dict | None:
+        with self.conn() as c:
+            if status is not None:
+                c.execute("UPDATE listings SET status=?, updated_at=? WHERE id=?", (status, now(), lid))
+                if status == "agent":
+                    c.execute("UPDATE listings SET category='agency' WHERE id=?", (lid,))
+            if note is not None:
+                c.execute("UPDATE listings SET note=?, updated_at=? WHERE id=?", (note, now(), lid))
+            r = c.execute("SELECT * FROM listings WHERE id=?", (lid,)).fetchone()
+        if status == "agent":
+            self.blacklist_listing_phones(lid)
+        return dict(r) if r else None
+
+    def get(self, lid: int) -> dict | None:
+        with self.conn() as c:
+            r = c.execute("SELECT * FROM listings WHERE id=?", (lid,)).fetchone()
+            return dict(r) if r else None
+
+    def leads(self, category: str | None = None, status: str | None = None, deal: str | None = None,
+              q: str | None = None, limit: int = 300) -> list[dict]:
+        sql = "SELECT * FROM listings WHERE 1=1"
+        args: list = []
+        if category:
+            cats = category.split(",")
+            sql += f" AND category IN ({','.join('?' * len(cats))})"
+            args += cats
+        if status:
+            sql += " AND status=?"
+            args.append(status)
+        if deal:
+            sql += " AND deal=?"
+            args.append(deal)
+        if q:
+            sql += " AND (title LIKE ? OR location LIKE ? OR description LIKE ? OR phones LIKE ? OR note LIKE ?)"
+            args += [f"%{q}%"] * 5
+        sql += " ORDER BY first_seen DESC LIMIT ?"
+        args.append(limit)
+        with self.conn() as c:
+            return [dict(r) for r in c.execute(sql, args)]
+
+    def stats(self) -> dict:
+        with self.conn() as c:
+            by_cat = {r["category"]: r["n"] for r in c.execute("SELECT category, COUNT(*) n FROM listings GROUP BY category")}
+            by_status = {r["status"]: r["n"] for r in c.execute(
+                "SELECT status, COUNT(*) n FROM listings WHERE category!='agency' GROUP BY status")}
+            today = c.execute(
+                "SELECT COUNT(*) n FROM listings WHERE category!='agency' AND first_seen >= date('now')").fetchone()["n"]
+        return {"by_category": by_cat, "by_status": by_status, "leads_today": today,
+                "last_run": self.get_kv("last_run"), "last_run_summary": self.get_kv("last_run_summary")}
