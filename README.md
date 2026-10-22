@@ -1,8 +1,9 @@
 # Lovec — ліди без ріелтора, Братислава
 
 Кожні 5 хв перевіряє Bazoš, Nehnuteľnosti, Reality.sk і TopReality, відкриває нові оголошення,
-відсіює ріелторів і шле приватних продавців/орендодавців у Telegram. Статуси й нотатки — в дашборді
-або кнопками прямо під повідомленням.
+відсіює ріелторів і шле приватних продавців/орендодавців у Telegram. Усе інше — в **Mini App прямо в боті**
+(кнопка «Lovec» біля поля вводу): ліди, картка з дзвінком в один тап, статуси, нотатки, пошуки,
+перевірка парсерів, налаштування фільтра, пауза.
 
 ```
 🟢 приватна     → пуш
@@ -41,13 +42,21 @@ python -m lovec serve           # http://localhost:8000
 
 Те саме, коли через пів року щось зламається: сайти міняють верстку — `check` покаже де.
 
-## Telegram
+## Telegram і Mini App
 
 1. @BotFather → `/newbot` → токен у `TELEGRAM_BOT_TOKEN`
-2. Запусти Lovec, напиши боту `/start` — він відповість `chat_id`, впиши в `TELEGRAM_CHAT_ID`, перезапусти
+2. Запусти Lovec, напиши боту `/id` — він відповість `chat_id`, впиши в `TELEGRAM_CHAT_ID`, перезапусти
 3. `python -m lovec test-telegram`
+4. Mini App: у `.env` задай `PUBLIC_URL=https://…` (та сама адреса, що в Caddyfile). При старті бот
+   сам ставить кнопку меню «Lovec» і додає «📋 Картка в Lovec» під кожним лідом.
 
-Працюєш з партнером — додай бота в групу, візьми id групи (`-100…`). Команда `/stats` — зведення.
+Mini App вимагає **HTTPS**. Домену нема — бери `lovec.<IP>.sslip.io`, Caddy видасть сертифікат сам.
+Авторизація — підпис Telegram (initData), без паролів; пускає лише id з `TELEGRAM_ALLOWED_USERS`
+(за замовчуванням — тебе). З браузера той самий інтерфейс відкривається з basic auth.
+
+Партнер: додай його id в `TELEGRAM_ALLOWED_USERS`. Пуші можна слати в спільну групу (`-100…`),
+але кнопки Mini App Telegram показує лише в особистому чаті — там відкривайте з меню бота.
+Команди: `/app`, `/stats`, `/id`.
 
 ## Деплой на Hetzner (CX22, ~4 €/міс)
 
@@ -56,24 +65,27 @@ python -m lovec serve           # http://localhost:8000
 curl -fsSL https://get.docker.com | sh
 git clone <твій-репо> lovec && cd lovec      # або scp -r
 cp .env.example .env && nano .env
-nano Caddyfile                                # свій домен, або ":80" якщо без домену
+nano Caddyfile                                # свій домен або lovec.<IP>.sslip.io
 mkdir -p data
 docker compose run --rm lovec python -m lovec check
 docker compose up -d
 docker compose logs -f lovec
 ```
 
-Домен: A-запис `lovec.твійдомен.sk` → IP сервера, Caddy сам видасть HTTPS.
-Змінив пошуки в `config.yaml` → `docker compose restart lovec`.
+Свій домен: A-запис `lovec.твійдомен.sk` → IP сервера, Caddy сам видасть HTTPS.
+Оновлення: `git pull && docker compose up -d --build`.
 Бекап — це один файл `data/lovec.db`.
 
-## Налаштування (`config.yaml`)
+## Налаштування
+
+Пошуки й параметри міняються в Mini App (вкладки «Пошуки» і «Налаштування») і живуть у БД.
+`config.yaml` — лише стартовий набір: його пошуки засіваються в БД при першому запуску.
 
 - **Свій пошук:** відкрий сайт, вистав фільтри (район, ціна, кімнати, *сортування від найновіших*),
-  скопіюй URL у `searches`. Головне — найновіші зверху, бо читається лише перша сторінка.
+  встав посилання в «Пошуки → Додати» — одразу пройде перевірка. Читається лише перша сторінка.
 - `interval_minutes: 5` — швидше не треба: швидкість реакції важлива, але бан IP гірший.
 - `first_run_silent: true` — перший прохід лише запам'ятовує, що вже висить, щоб не прилетіло 300 пушів.
-- Пороги `score` — якщо бачиш багато ріелторів у 🟡, зменш `suspicious_max` до 2.
+- Пороги фільтра — якщо бачиш багато ріелторів у 🟡, зменш «підозрілу» до 2.
 
 ## Чого тут свідомо немає
 
@@ -99,8 +111,9 @@ lovec/
   sources/sites.py   адаптери 4 сайтів           ← правиш тут, коли сайт змінився
   classify.py        приватна особа vs RK        ← тюнінг правил
   scraper.py         один прохід
-  telegram.py        пуші + кнопки статусів
-  web.py             дашборд + фонові цикли
-  dashboard.html     UI (мобільний)
+  telegram.py        пуші, кнопки статусів, кнопка меню Mini App
+  tgauth.py          перевірка підпису Telegram initData
+  web.py             API + фонові цикли
+  app.html           Mini App (тема Telegram, haptics, BackButton)
 tests/               pytest — тексти з реальних оголошень
 ```

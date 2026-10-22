@@ -48,14 +48,15 @@ def render(row: dict, public_url: str = "") -> str:
     st = row.get("status", "new")
     if st != "new":
         lines.append(f"\n<b>Статус:</b> {STATUSES.get(st, st)}")
-    if public_url:
-        lines.append(f'<a href="{public_url}/#lead-{row["id"]}">Відкрити в дашборді</a>')
     return "\n".join(lines)
 
 
-def keyboard(lid: int, current: str = "new") -> dict:
+def keyboard(lid: int, current: str = "new", app_url: str = "") -> dict:
     btns = [{"text": ("• " if k == current else "") + STATUSES[k], "callback_data": f"s:{k}:{lid}"} for k in QUICK]
-    return {"inline_keyboard": [btns[:3], btns[3:]]}
+    rows = [btns[:3], btns[3:]]
+    if app_url:  # web_app-кнопки Telegram дозволяє лише в особистому чаті з ботом
+        rows.append([{"text": "📋 Картка в Lovec", "web_app": {"url": f"{app_url}/#lead-{lid}"}}])
+    return {"inline_keyboard": rows}
 
 
 class Telegram:
@@ -63,6 +64,30 @@ class Telegram:
         self.s, self.db = s, db
         self.api = f"https://api.telegram.org/bot{s.telegram_token}"
         self.enabled = bool(s.telegram_token and s.telegram_chat_id)
+        # Mini App потребує HTTPS; у групах web_app-кнопки заборонені
+        self.app_url = s.public_url if s.public_url.startswith("https://") else ""
+        self.private_chat = not str(s.telegram_chat_id).startswith("-")
+
+    def _kb(self, lid: int, status: str = "new") -> dict:
+        return keyboard(lid, status, self.app_url if self.private_chat else "")
+
+    def setup_menu(self) -> None:
+        """Кнопка «Lovec» зліва від поля вводу відкриває Mini App."""
+        if not self.s.telegram_token:
+            return
+        try:
+            httpx.post(f"{self.api}/setMyCommands", timeout=20, json={"commands": [
+                {"command": "app", "description": "Відкрити Lovec"},
+                {"command": "stats", "description": "Зведення"},
+                {"command": "id", "description": "Мій chat_id"}]})
+            if self.app_url:
+                r = httpx.post(f"{self.api}/setChatMenuButton", timeout=20, json={
+                    "menu_button": {"type": "web_app", "text": "Lovec", "web_app": {"url": self.app_url}}})
+                log.info("Menu button: %s", r.json())
+            else:
+                log.warning("PUBLIC_URL не https — Mini App не підключено (Telegram вимагає HTTPS)")
+        except httpx.HTTPError as e:
+            log.warning("setup_menu: %s", e)
 
     # синхронно — викликається зі скрейпера (окремий потік)
     def send_lead(self, lid: int, row: dict) -> None:
@@ -70,7 +95,7 @@ class Telegram:
             return
         r = httpx.post(f"{self.api}/sendMessage", timeout=20, json={
             "chat_id": self.s.telegram_chat_id, "text": render(row, self.s.public_url), "parse_mode": "HTML",
-            "disable_web_page_preview": False, "reply_markup": keyboard(lid)})
+            "disable_web_page_preview": False, "reply_markup": self._kb(lid)})
         data = r.json()
         if not data.get("ok"):
             log.error("Telegram: %s", data)
@@ -120,15 +145,20 @@ class Telegram:
             if row:
                 await c.post(f"{self.api}/editMessageText", json={
                     "chat_id": chat, "message_id": cq["message"]["message_id"], "parse_mode": "HTML",
-                    "text": render(row, self.s.public_url), "reply_markup": keyboard(lid, status)})
+                    "text": render(row, self.s.public_url), "reply_markup": self._kb(lid, status)})
             return
 
         msg = u.get("message") or {}
         chat = str(msg.get("chat", {}).get("id"))
         text = (msg.get("text") or "").strip()
-        if text.startswith("/start") or text.startswith("/id"):
+        if text.startswith("/id") or (text.startswith("/start") and not self.app_url):
             # Допомагає дізнатись свій chat_id при налаштуванні
             await c.post(f"{self.api}/sendMessage", json={"chat_id": chat, "text": f"chat_id: {chat}"})
+        elif text.startswith("/start") or text.startswith("/app"):
+            body = {"chat_id": chat, "text": f"Lovec 🎯\nchat_id: {chat}"}
+            if self.app_url and not chat.startswith("-"):
+                body["reply_markup"] = {"inline_keyboard": [[{"text": "Відкрити Lovec", "web_app": {"url": self.app_url}}]]}
+            await c.post(f"{self.api}/sendMessage", json=body)
         elif text.startswith("/stats") and chat == str(self.s.telegram_chat_id):
             st = await asyncio.to_thread(self.db.stats)
             cats = st["by_category"]

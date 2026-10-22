@@ -36,6 +36,12 @@ class Settings:
     dashboard_user: str = "admin"
     dashboard_password: str = ""
     public_url: str = ""  # напр. https://lovec.example.com — для посилань у Telegram
+    allowed_users: list[int] = field(default_factory=list)  # Telegram user id з доступом до Mini App
+    paused: bool = False
+
+    # Що можна міняти з Mini App (зберігається в БД поверх config.yaml)
+    TUNABLE = {"interval_minutes": int, "max_new_per_run": int, "private_max": int, "suspicious_max": int,
+               "phone_reuse_limit": int, "notify_private": bool, "notify_suspicious": bool, "paused": bool}
 
 
 def load(config_path: str | None = None) -> Settings:
@@ -62,7 +68,26 @@ def load(config_path: str | None = None) -> Settings:
         dashboard_user=os.getenv("DASHBOARD_USER", "admin"),
         dashboard_password=os.getenv("DASHBOARD_PASSWORD", ""),
         public_url=os.getenv("PUBLIC_URL", "").rstrip("/"),
+        allowed_users=[int(x) for x in os.getenv("TELEGRAM_ALLOWED_USERS", "").replace(" ", "").split(",") if x],
     )
+    # Особистий чат з ботом: chat_id == user_id, тож власник має доступ без додаткових налаштувань
+    if not s.allowed_users and s.telegram_chat_id.isdigit():
+        s.allowed_users = [int(s.telegram_chat_id)]
     if s.interval_minutes < 3:
         s.interval_minutes = 3
+    return s
+
+
+def effective(base: Settings, db) -> Settings:
+    """config.yaml + правки з Mini App (kv) + пошуки з БД."""
+    import copy
+    import json
+    s = copy.copy(base)
+    overrides = json.loads(db.get_kv("settings", "{}") or "{}")
+    for k, typ in Settings.TUNABLE.items():
+        if k in overrides:
+            setattr(s, k, typ(overrides[k]))
+    s.interval_minutes = max(3, s.interval_minutes)
+    s.searches = [Search(name=r["name"], source=r["source"], url=r["url"], deal=r["deal"])
+                  for r in db.searches() if r["enabled"]]
     return s

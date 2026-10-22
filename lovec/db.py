@@ -57,6 +57,16 @@ CREATE TABLE IF NOT EXISTS seen_urls (
     first_seen TEXT
 );
 CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT);
+CREATE TABLE IF NOT EXISTS searches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    source TEXT NOT NULL,
+    url TEXT NOT NULL,
+    deal TEXT DEFAULT 'predaj',
+    enabled INTEGER DEFAULT 1,
+    last_check TEXT,
+    last_links INTEGER
+);
 """
 
 
@@ -92,6 +102,42 @@ class DB:
     def set_kv(self, k: str, v: str) -> None:
         with self.conn() as c:
             c.execute("INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", (k, v))
+
+    # ---- searches (керуються з Mini App; при першому старті беруться з config.yaml) ----
+    def seed_searches(self, searches) -> None:
+        if self.get_kv("searches_seeded") == "1":
+            return
+        with self.conn() as c:
+            for x in searches:
+                c.execute("INSERT INTO searches(name,source,url,deal) VALUES(?,?,?,?)",
+                          (x.name, x.source, x.url, x.deal))
+        self.set_kv("searches_seeded", "1")
+
+    def searches(self) -> list[dict]:
+        with self.conn() as c:
+            return [dict(r) for r in c.execute("SELECT * FROM searches ORDER BY source, id")]
+
+    def add_search(self, name: str, source: str, url: str, deal: str) -> int:
+        with self.conn() as c:
+            return c.execute("INSERT INTO searches(name,source,url,deal) VALUES(?,?,?,?)",
+                             (name, source, url, deal)).lastrowid
+
+    def update_search(self, sid: int, **fields) -> None:
+        allowed = {k: v for k, v in fields.items()
+                   if k in ("name", "url", "deal", "enabled", "last_check", "last_links") and v is not None}
+        if not allowed:
+            return
+        with self.conn() as c:
+            c.execute(f"UPDATE searches SET {', '.join(f'{k}=?' for k in allowed)} WHERE id=?",
+                      [*allowed.values(), sid])
+
+    def delete_search(self, sid: int) -> None:
+        with self.conn() as c:
+            c.execute("DELETE FROM searches WHERE id=?", (sid,))
+
+    def touch_search(self, url: str, links: int) -> None:
+        with self.conn() as c:
+            c.execute("UPDATE searches SET last_check=?, last_links=? WHERE url=?", (now(), links, url))
 
     # ---- seen ----
     def unseen(self, urls: list[str]) -> list[str]:

@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>Lovec</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: var(--tg-theme-secondary-bg-color, #f2f2f7);
+    --card: var(--tg-theme-section-bg-color, var(--tg-theme-bg-color, #ffffff));
+    --ink: var(--tg-theme-text-color, #000000);
+    --hint: var(--tg-theme-hint-color, #8e8e93);
+    --link: var(--tg-theme-link-color, #2481cc);
+    --btn: var(--tg-theme-button-color, #2481cc);
+    --btn-ink: var(--tg-theme-button-text-color, #ffffff);
+    --danger: var(--tg-theme-destructive-text-color, #e53935);
+    --line: color-mix(in srgb, var(--hint) 22%, transparent);
+    --soft: color-mix(in srgb, var(--hint) 12%, transparent);
+    --green: #31b545; --yellow: #f0a400; --red: #e53935;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not(.tg) { --tg-theme-secondary-bg-color: #000; --tg-theme-section-bg-color: #1c1c1e;
+      --tg-theme-text-color: #fff; --tg-theme-hint-color: #8e8e93; }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", Roboto, "Segoe UI", sans-serif; }
+  body { padding-bottom: calc(68px + env(safe-area-inset-bottom)); }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
+  input, select, textarea { font: inherit; color: var(--ink); background: var(--card); border: 1px solid var(--line);
+    border-radius: 10px; padding: 10px 12px; width: 100%; outline: none; }
+  textarea { resize: vertical; min-height: 72px; }
+  .screen { display: none; padding: 12px 12px 8px; max-width: 640px; margin: 0 auto; }
+  .screen.on { display: block; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--hint); font-weight: 500;
+    margin: 18px 4px 6px; }
+  .muted { color: var(--hint); font-size: 13px; }
+
+  /* chips / segmented */
+  .chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin: 0 -12px; padding: 0 12px 2px; }
+  .chips::-webkit-scrollbar { display: none; }
+  .chip { flex: none; padding: 7px 12px; border-radius: 999px; background: var(--card); font-size: 14px;
+    border: 1px solid var(--line); white-space: nowrap; }
+  .chip.on { background: var(--btn); color: var(--btn-ink); border-color: var(--btn); }
+  .chip .n { opacity: .7; margin-left: 4px; font-variant-numeric: tabular-nums; }
+  .bar { display: flex; gap: 8px; margin-top: 10px; }
+  .bar input { flex: 1; }
+  .bar select { width: auto; }
+
+  /* lead cards */
+  .list { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+  .lead { background: var(--card); border-radius: 14px; padding: 12px 14px; text-align: left; width: 100%;
+    display: block; }
+  .lead.dim { opacity: .55; }
+  .lead .top { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--hint); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .private .dot { background: var(--green); } .suspicious .dot { background: var(--yellow); } .agency .dot { background: var(--red); }
+  .lead .t { font-weight: 600; margin: 4px 0 6px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .tags { display: flex; gap: 5px; flex-wrap: wrap; }
+  .tag { background: var(--soft); border-radius: 6px; padding: 2px 7px; font-size: 13px; }
+  .tag.price { font-weight: 600; }
+  .tag.st { margin-left: auto; }
+  .empty { text-align: center; color: var(--hint); padding: 56px 16px; }
+
+  /* detail */
+  .sec { background: var(--card); border-radius: 14px; padding: 14px; margin-top: 10px; }
+  .dt { font-size: 19px; font-weight: 700; line-height: 1.25; margin: 6px 0 10px; }
+  .desc { white-space: pre-line; font-size: 14px; color: var(--ink); }
+  .row { display: flex; gap: 8px; }
+  .btn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 12px;
+    border-radius: 12px; background: var(--btn); color: var(--btn-ink); font-weight: 600; text-decoration: none; }
+  .btn.ghost { background: var(--soft); color: var(--ink); font-weight: 500; }
+  .btn.danger { background: none; color: var(--danger); }
+  .btn:disabled { opacity: .5; }
+  .phone { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .phone a.btn { flex: 3; }
+  .phone button.btn { flex: 1; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .st-btn { padding: 10px 8px; border-radius: 10px; background: var(--soft); font-size: 14px; text-align: left; }
+  .st-btn.on { background: var(--btn); color: var(--btn-ink); }
+  .reasons { font-size: 13px; color: var(--hint); line-height: 1.6; }
+  .warn { background: color-mix(in srgb, var(--yellow) 16%, transparent); border-radius: 10px; padding: 10px 12px;
+    font-size: 14px; margin-top: 10px; }
+
+  /* lists (searches / settings) */
+  .group { background: var(--card); border-radius: 14px; overflow: hidden; }
+  .item { padding: 12px 14px; border-bottom: 1px solid var(--line); }
+  .item:last-child { border-bottom: 0; }
+  .item .hd { display: flex; align-items: center; gap: 10px; }
+  .item .name { flex: 1; font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .item .sub { font-size: 12px; color: var(--hint); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .item .acts { display: flex; gap: 16px; margin-top: 8px; font-size: 14px; }
+  .item .acts button { color: var(--link); }
+  .item .acts .del { color: var(--danger); margin-left: auto; }
+  .result { margin-top: 8px; font-size: 13px; background: var(--soft); border-radius: 10px; padding: 10px; }
+  .switch { position: relative; width: 46px; height: 28px; flex: none; }
+  .switch input { display: none; }
+  .switch span { position: absolute; inset: 0; background: var(--line); border-radius: 999px; transition: .2s; }
+  .switch span::after { content: ""; position: absolute; width: 24px; height: 24px; left: 2px; top: 2px;
+    background: #fff; border-radius: 50%; transition: .2s; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
+  .switch input:checked + span { background: var(--green); }
+  .switch input:checked + span::after { transform: translateX(18px); }
+  .set { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+  .set:last-child { border-bottom: 0; }
+  .set .lbl { flex: 1; }
+  .set .lbl small { display: block; color: var(--hint); font-size: 12px; }
+  .stepper { display: flex; align-items: center; gap: 4px; }
+  .stepper button { width: 32px; height: 32px; border-radius: 8px; background: var(--soft); font-size: 18px; }
+  .stepper b { min-width: 28px; text-align: center; font-variant-numeric: tabular-nums; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .stat { background: var(--card); border-radius: 14px; padding: 12px; }
+  .stat b { display: block; font-size: 22px; font-variant-numeric: tabular-nums; }
+  .stat span { font-size: 12px; color: var(--hint); }
+  .seg { display: flex; background: var(--soft); border-radius: 10px; padding: 2px; }
+  .seg button { flex: 1; padding: 8px; border-radius: 8px; font-size: 14px; }
+  .seg button.on { background: var(--card); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+
+  /* tab bar */
+  nav { position: fixed; left: 0; right: 0; bottom: 0; display: flex; background: var(--card);
+    border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); z-index: 10; }
+  nav button { flex: 1; padding: 8px 0 9px; display: flex; flex-direction: column; align-items: center; gap: 2px;
+    font-size: 11px; color: var(--hint); }
+  nav button .i { font-size: 20px; line-height: 1; filter: grayscale(1); opacity: .7; }
+  nav button.on { color: var(--btn); }
+  nav button.on .i { filter: none; opacity: 1; }
+  .toast { position: fixed; left: 50%; bottom: 84px; transform: translateX(-50%); background: rgba(0,0,0,.82);
+    color: #fff; padding: 9px 14px; border-radius: 10px; font-size: 14px; z-index: 20; opacity: 0;
+    transition: opacity .2s; pointer-events: none; max-width: 90vw; }
+  .toast.on { opacity: 1; }
+</style>
+</head>
+<body>
+
+<!-- ЛІДИ -->
+<section class="screen on" id="s-leads">
+  <div class="chips" id="tabs"></div>
+  <div class="bar">
+    <input type="search" id="q" placeholder="Вулиця, телефон, нотатка…">
+    <select id="deal"><option value="">Все</option><option value="predaj">Продаж</option><option value="prenajom">Оренда</option></select>
+  </div>
+  <div class="list" id="list"></div>
+</section>
+
+<!-- КАРТКА -->
+<section class="screen" id="s-lead"></section>
+
+<!-- ПОШУКИ -->
+<section class="screen" id="s-searches">
+  <h2>Що моніторимо</h2>
+  <div class="group" id="searches"></div>
+  <h2>Додати пошук</h2>
+  <div class="sec" style="margin-top:0">
+    <div class="muted" style="margin-bottom:8px">Відкрий сайт, вистав фільтри і <b>сортування від найновіших</b>, скопіюй посилання сюди.
+      Bazoš, Nehnuteľnosti, Reality.sk, TopReality.</div>
+    <input id="ns-url" placeholder="https://reality.bazos.sk/predam/byt/?hlokalita=…" inputmode="url">
+    <div class="row" style="margin-top:8px">
+      <input id="ns-name" placeholder="Назва (необов'язково)">
+      <div class="seg" id="ns-deal" style="flex:none"><button data-v="predaj" class="on">Продаж</button><button data-v="prenajom">Оренда</button></div>
+    </div>
+    <button class="btn" style="width:100%;margin-top:10px" id="ns-add">Додати і перевірити</button>
+  </div>
+</section>
+
+<!-- НАЛАШТУВАННЯ -->
+<section class="screen" id="s-settings">
+  <div class="stats" id="stats"></div>
+  <div class="row" style="margin-top:10px">
+    <button class="btn" id="run">Перевірити зараз</button>
+  </div>
+  <div class="muted" id="lastrun" style="margin:8px 4px 0"></div>
+  <h2>Робота</h2>
+  <div class="group" id="set-work"></div>
+  <h2>Сповіщення</h2>
+  <div class="group" id="set-notify"></div>
+  <h2>Фільтр ріелторів</h2>
+  <div class="group" id="set-filter"></div>
+  <div class="muted" style="margin:8px 4px">Score ≤ «приватна» → 🟢, до «підозріла» → 🟡, вище → 🔴. Багато ріелторів у 🟡 — зменш «підозрілу».</div>
+</section>
+
+<nav>
+  <button data-s="leads" class="on"><span class="i">🎯</span>Ліди</button>
+  <button data-s="searches"><span class="i">🔎</span>Пошуки</button>
+  <button data-s="settings"><span class="i">⚙️</span>Налаштування</button>
+</nav>
+<div class="toast" id="toast"></div>
+
+<script>
+const tg = window.Telegram?.WebApp;
+const inTg = !!(tg && tg.initData);
+if (inTg) { document.documentElement.classList.add("tg"); tg.ready(); tg.expand(); }
+const haptic = (t = "light") => tg?.HapticFeedback?.impactOccurred?.(t);
+const notifyH = (t = "success") => tg?.HapticFeedback?.notificationOccurred?.(t);
+
+const STATUSES = __STATUSES__;
+const SRC = { bazos: "Bazoš", nehnutelnosti: "Nehnuteľnosti", reality_sk: "Reality.sk", topreality: "TopReality" };
+const CAT = { private: "приватна", suspicious: "можливо приватна", agency: "ріелтор" };
+const TABS = [
+  { id: "new", label: "Нові", cat: "private,suspicious", status: "new" },
+  { id: "work", label: "В роботі", cat: "private,suspicious", status: "called,no_answer,meeting,contract" },
+  { id: "all", label: "Всі", cat: "private,suspicious" },
+  { id: "closed", label: "Закриті", cat: "private,suspicious,agency", status: "rejected,not_interesting,agent" },
+  { id: "agency", label: "Відсіяні RK", cat: "agency" },
+];
+const DONE = ["rejected", "not_interesting", "agent"];
+let tab = TABS[0], leads = [], current = null;
+
+// ---------- helpers ----------
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fphone = p => p.length === 12 ? `+${p.slice(0,3)} ${p.slice(3,6)} ${p.slice(6,9)} ${p.slice(9)}` : p;
+const ago = iso => {
+  if (!iso) return "—";
+  const m = Math.round((Date.now() - new Date(iso)) / 60000);
+  if (m < 1) return "щойно"; if (m < 60) return `${m} хв тому`; if (m < 1440) return `${Math.round(m / 60)} год тому`;
+  return new Date(iso).toLocaleDateString("uk-UA", { day: "numeric", month: "short" });
+};
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.add("on"); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("on"), 2200); }
+async function api(path, opts = {}) {
+  const headers = { "Content-Type": "application/json", ...(inTg ? { "X-Tg-Init-Data": tg.initData } : {}) };
+  const r = await fetch(path, { ...opts, headers, body: opts.body ? JSON.stringify(opts.body) : undefined });
+  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.detail || `HTTP ${r.status}`); }
+  return r.json();
+}
+function openExternal(url) { inTg ? tg.openLink(url) : window.open(url, "_blank"); }
+
+// ---------- navigation ----------
+function show(name) {
+  document.querySelectorAll(".screen").forEach(s => s.classList.toggle("on", s.id === "s-" + name));
+  document.querySelectorAll("nav button").forEach(b => b.classList.toggle("on", b.dataset.s === name || (name === "lead" && b.dataset.s === "leads")));
+  window.scrollTo(0, 0);
+  if (name === "lead") tg?.BackButton?.show(); else tg?.BackButton?.hide();
+  if (name === "leads") loadLeads();
+  if (name === "searches") loadSearches();
+  if (name === "settings") loadSettings();
+}
+document.querySelector("nav").onclick = e => { const b = e.target.closest("button"); if (b) { haptic(); location.hash = ""; show(b.dataset.s); } };
+tg?.BackButton?.onClick(() => { location.hash = ""; show("leads"); });
+
+// ---------- leads ----------
+function renderTabs() {
+  $("#tabs").innerHTML = TABS.map(t => `<button class="chip ${t === tab ? "on" : ""}" data-id="${t.id}">${t.label}</button>`).join("");
+}
+$("#tabs").onclick = e => { const t = TABS.find(x => x.id === e.target.closest("button")?.dataset.id); if (t) { haptic(); tab = t; renderTabs(); loadLeads(); } };
+
+async function loadLeads() {
+  const p = new URLSearchParams({ category: tab.cat, status: tab.status || "", deal: $("#deal").value, q: $("#q").value });
+  try { leads = await api("/api/leads?" + p); } catch (e) { $("#list").innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+  $("#list").innerHTML = leads.length ? leads.map(r => `
+    <button class="lead ${r.category} ${DONE.includes(r.status) ? "dim" : ""}" data-id="${r.id}">
+      <div class="top"><span class="dot"></span>${SRC[r.source] || r.source} · ${r.deal === "predaj" ? "продаж" : "оренда"} · ${ago(r.first_seen)}</div>
+      <div class="t">${esc(r.title || "без назви")}</div>
+      <div class="tags">
+        ${r.price_text ? `<span class="tag price">${esc(r.price_text)}</span>` : ""}
+        ${r.location ? `<span class="tag">${esc(r.location.slice(0, 28))}</span>` : ""}
+        ${r.wants_no_rk ? `<span class="tag">🤫</span>` : ""}
+        ${r.note ? `<span class="tag">📝</span>` : ""}
+        ${r.status !== "new" ? `<span class="tag st">${STATUSES[r.status]}</span>` : ""}
+      </div>
+    </button>`).join("") : `<div class="empty">Тут поки порожньо.<br>Нові ліди прилетять у бот і з'являться тут.</div>`;
+}
+$("#list").onclick = e => { const b = e.target.closest(".lead"); if (b) { haptic(); location.hash = "lead-" + b.dataset.id; } };
+let qt; $("#q").oninput = () => { clearTimeout(qt); qt = setTimeout(loadLeads, 250); };
+$("#deal").onchange = loadLeads;
+
+// ---------- lead detail ----------
+async function openLead(id) {
+  show("lead");
+  const el = $("#s-lead");
+  el.innerHTML = `<div class="empty">…</div>`;
+  try { current = await api(`/api/leads/${id}`); } catch (e) { el.innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+  const r = current, phones = (r.phones || "").split(",").filter(Boolean);
+  el.innerHTML = `
+    <div class="sec ${r.category}" style="margin-top:0">
+      <div class="top muted" style="display:flex;gap:6px;align-items:center"><span class="dot"></span>${CAT[r.category]} · ${SRC[r.source]} · ${r.deal === "predaj" ? "продаж" : "оренда"} · ${ago(r.first_seen)}</div>
+      <div class="dt">${esc(r.title || "без назви")}</div>
+      <div class="tags">
+        ${r.price_text ? `<span class="tag price">${esc(r.price_text)}</span>` : ""}
+        ${r.location ? `<span class="tag">${esc(r.location)}</span>` : ""}
+        ${r.seller_name ? `<span class="tag">👤 ${esc(r.seller_name)}</span>` : ""}
+      </div>
+      ${r.wants_no_rk ? `<div class="warn">🤫 Просить без ріелторів. Заходь з цінністю: оцінка ціни, покупець, юридична перевірка — не «продам вашу квартиру».</div>` : ""}
+    </div>
+    <div class="sec">
+      ${phones.map(p => `<div class="phone"><a class="btn" href="tel:+${p}">📞 ${fphone(p)}</a><button class="btn ghost" data-copy="+${p}">Копіювати</button></div>`).join("")
+        || `<div class="muted" style="margin-bottom:8px">Телефон на сайті прихований — відкрий оголошення.</div>`}
+      <button class="btn ghost" style="width:100%" id="open-ad">Відкрити оголошення ↗</button>
+    </div>
+    <h2>Статус</h2>
+    <div class="grid" id="st-grid">${Object.entries(STATUSES).map(([k, v]) => `<button class="st-btn ${k === r.status ? "on" : ""}" data-st="${k}">${v}</button>`).join("")}</div>
+    <h2>Нотатка</h2>
+    <textarea id="note" placeholder="Ім'я, коли передзвонити, що сказав…">${esc(r.note)}</textarea>
+    ${r.description ? `<h2>Опис</h2><div class="sec desc" style="margin-top:0">${esc(r.description)}</div>` : ""}
+    <h2>Чому score ${r.score}</h2>
+    <div class="sec reasons" style="margin-top:0">${r.reasons.map(esc).join("<br>") || "—"}</div>
+    <div style="height:12px"></div>`;
+  $("#open-ad").onclick = () => openExternal(r.url);
+  el.querySelectorAll("[data-copy]").forEach(b => b.onclick = async () => {
+    try { await navigator.clipboard.writeText(b.dataset.copy); notifyH(); toast("Скопійовано"); } catch { toast(b.dataset.copy); }
+  });
+  $("#st-grid").onclick = async e => {
+    const b = e.target.closest("[data-st]"); if (!b) return;
+    const st = b.dataset.st;
+    const go = async () => {
+      await api(`/api/leads/${r.id}`, { method: "PATCH", body: { status: st } });
+      r.status = st; el.querySelectorAll(".st-btn").forEach(x => x.classList.toggle("on", x.dataset.st === st));
+      notifyH(); toast(st === "agent" ? "Телефон у чорному списку" : STATUSES[st]);
+    };
+    if (st === "agent" && inTg) tg.showConfirm("Позначити як ріелтора? Його телефон більше не пройде фільтр.", ok => ok && go());
+    else go();
+  };
+  const note = $("#note");
+  const saveNote = async () => { if (note.value !== (r.note || "")) { await api(`/api/leads/${r.id}`, { method: "PATCH", body: { note: note.value } }); r.note = note.value; toast("Нотатку збережено"); } };
+  note.onblur = saveNote;
+  if (tg?.MainButton) {
+    note.onfocus = () => { tg.MainButton.setText("Зберегти нотатку"); tg.MainButton.show(); };
+    note.addEventListener("blur", () => tg.MainButton.hide());
+  }
+}
+tg?.MainButton?.onClick(() => document.activeElement?.blur());
+
+// ---------- searches ----------
+async function loadSearches() {
+  let rows;
+  try { rows = await api("/api/searches"); } catch (e) { $("#searches").innerHTML = `<div class="item">${esc(e.message)}</div>`; return; }
+  $("#searches").innerHTML = rows.length ? rows.map(s => {
+    const health = s.last_links == null ? "ще не перевірявся" : s.last_links < 0 ? "❌ сайт не відповів" : s.last_links === 0 ? "⚠️ 0 оголошень" : `✅ ${s.last_links} на сторінці`;
+    return `<div class="item" data-id="${s.id}">
+      <div class="hd">
+        <div style="flex:1;min-width:0"><div class="name">${esc(s.name)}</div>
+          <div class="sub">${SRC[s.source]} · ${s.deal === "predaj" ? "продаж" : "оренда"} · ${health}${s.last_check ? " · " + ago(s.last_check) : ""}</div></div>
+        <label class="switch"><input type="checkbox" class="tgl" ${s.enabled ? "checked" : ""}><span></span></label>
+      </div>
+      <div class="acts"><button class="chk">Перевірити</button><button class="open">Відкрити ↗</button><button class="del">Видалити</button></div>
+      <div class="res"></div>
+    </div>`;
+  }).join("") : `<div class="item muted">Пошуків нема — додай нижче.</div>`;
+  $("#searches").querySelectorAll(".item[data-id]").forEach(it => {
+    const id = it.dataset.id, s = rows.find(x => x.id == id);
+    it.querySelector(".tgl").onchange = async e => { haptic(); await api(`/api/searches/${id}`, { method: "PATCH", body: { enabled: e.target.checked } }); toast(e.target.checked ? "Увімкнено" : "Вимкнено"); };
+    it.querySelector(".open").onclick = () => openExternal(s.url);
+    it.querySelector(".chk").onclick = () => runCheck(id, it.querySelector(".res"));
+    it.querySelector(".del").onclick = () => {
+      const go = async () => { await api(`/api/searches/${id}`, { method: "DELETE" }); notifyH(); loadSearches(); };
+      inTg ? tg.showConfirm(`Видалити «${s.name}»?`, ok => ok && go()) : (confirm(`Видалити «${s.name}»?`) && go());
+    };
+  });
+}
+
+async function runCheck(id, box) {
+  box.innerHTML = `<div class="result">Перевіряю… (10–20 с)</div>`;
+  try {
+    const r = await api(`/api/searches/${id}/check`, { method: "POST" });
+    const smp = r.samples.map(x => x.error ? `❌ ${esc(x.error)}` :
+      `${x.weak ? "⚠️" : "✅"} <b>${esc((x.title || "без назви").slice(0, 60))}</b><br>
+       ${esc(x.price || "ціна ?")} · ${esc(x.location || "місце ?")} · опис ${x.desc_len} симв. · тел ${x.phones.length}<br>
+       → ${CAT[x.category]} (score ${x.score})`).join("<br><br>");
+    box.innerHTML = `<div class="result">${r.ok ? "✅ Працює" : "⚠️ Проблема"} · посилань: ${r.links}${r.error ? "<br>" + esc(r.error) : ""}${smp ? "<br><br>" + smp : ""}</div>`;
+    notifyH(r.ok ? "success" : "warning");
+  } catch (e) { box.innerHTML = `<div class="result">❌ ${esc(e.message)}</div>`; notifyH("error"); }
+}
+
+let nsDeal = "predaj";
+$("#ns-deal").onclick = e => { const b = e.target.closest("button"); if (!b) return; nsDeal = b.dataset.v; $("#ns-deal").querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b)); };
+$("#ns-add").onclick = async () => {
+  const url = $("#ns-url").value.trim(); if (!url) return toast("Встав посилання");
+  try {
+    const { id } = await api("/api/searches", { method: "POST", body: { url, name: $("#ns-name").value, deal: nsDeal } });
+    $("#ns-url").value = $("#ns-name").value = ""; notifyH(); await loadSearches();
+    const it = document.querySelector(`.item[data-id="${id}"]`); it?.scrollIntoView({ behavior: "smooth" });
+    if (it) runCheck(id, it.querySelector(".res"));
+  } catch (e) { notifyH("error"); toast(e.message); }
+};
+
+// ---------- settings ----------
+let S = {};
+async function loadSettings() {
+  try { [S] = await Promise.all([api("/api/settings"), loadStats()]); } catch (e) { toast(e.message); return; }
+  const toggle = (k, label, hint = "") => `<div class="set"><div class="lbl">${label}${hint ? `<small>${hint}</small>` : ""}</div>
+    <label class="switch"><input type="checkbox" data-k="${k}" ${S[k] ? "checked" : ""}><span></span></label></div>`;
+  const step = (k, label, hint, min, max) => `<div class="set"><div class="lbl">${label}<small>${hint}</small></div>
+    <div class="stepper" data-k="${k}" data-min="${min}" data-max="${max}"><button data-d="-1">−</button><b>${S[k]}</b><button data-d="1">+</button></div></div>`;
+  $("#set-work").innerHTML = toggle("paused", "Пауза", "Зупинити перевірку сайтів")
+    + step("interval_minutes", "Інтервал, хв", "Мінімум 3 — інакше забанять", 3, 120)
+    + step("max_new_per_run", "Нових за прохід", "Скільки оголошень відкривати за раз", 5, 100);
+  $("#set-notify").innerHTML = toggle("notify_private", "🟢 Приватні") + toggle("notify_suspicious", "🟡 Можливо приватні", "Сюди потрапляють і замасковані ріелтори");
+  $("#set-filter").innerHTML = step("private_max", "Поріг «приватна»", "score ≤ цього → 🟢", -5, 5)
+    + step("suspicious_max", "Поріг «підозріла»", "score ≤ цього → 🟡", -3, 8)
+    + step("phone_reuse_limit", "Повтор телефону", "У скількох оголошеннях = ріелтор", 2, 10);
+  document.querySelectorAll("#s-settings input[data-k]").forEach(i => i.onchange = () => saveSetting(i.dataset.k, i.checked));
+  document.querySelectorAll("#s-settings .stepper").forEach(st => st.onclick = e => {
+    const b = e.target.closest("button"); if (!b) return;
+    const k = st.dataset.k, v = Math.min(+st.dataset.max, Math.max(+st.dataset.min, S[k] + +b.dataset.d));
+    if (v === S[k]) return; haptic(); S[k] = v; st.querySelector("b").textContent = v; saveSetting(k, v);
+  });
+}
+async function saveSetting(k, v) {
+  try { S = await api("/api/settings", { method: "PATCH", body: { [k]: v } }); toast("Збережено"); if (k === "paused") loadStats(); }
+  catch (e) { notifyH("error"); toast(e.message); loadSettings(); }
+}
+async function loadStats() {
+  const s = await api("/api/stats"), c = s.by_category || {}, st = s.by_status || {};
+  $("#stats").innerHTML = `
+    <div class="stat"><b>${s.leads_today}</b><span>лідів сьогодні</span></div>
+    <div class="stat"><b>${(c.private || 0) + (c.suspicious || 0)}</b><span>🟢🟡 всього</span></div>
+    <div class="stat"><b>${c.agency || 0}</b><span>🔴 відсіяно</span></div>
+    <div class="stat"><b>${(st.called || 0) + (st.no_answer || 0)}</b><span>дзвінків</span></div>
+    <div class="stat"><b>${st.meeting || 0}</b><span>зустрічей</span></div>
+    <div class="stat"><b>${st.contract || 0}</b><span>договорів</span></div>`;
+  $("#lastrun").textContent = s.paused ? "⏸ На паузі" : s.running ? "Перевіряю сайти…" : `Остання перевірка: ${ago(s.last_run)}`;
+  return s;
+}
+$("#run").onclick = async () => { haptic("medium"); const r = await api("/api/run", { method: "POST" }); toast(r.ok ? "Запустив перевірку" : r.msg); setTimeout(loadStats, 800); };
+
+// ---------- start ----------
+function route() { const m = location.hash.match(/^#lead-(\d+)/); if (m) openLead(m[1]); }
+window.addEventListener("hashchange", () => { if (location.hash.startsWith("#lead-")) route(); else if ($("#s-lead").classList.contains("on")) show("leads"); });
+renderTabs();
+if (location.hash.startsWith("#lead-")) route(); else loadLeads();
+setInterval(() => { if ($("#s-leads").classList.contains("on") && !document.activeElement.matches("input,textarea")) loadLeads(); }, 60000);
+</script>
+</body>
+</html>

@@ -16,6 +16,40 @@ log = logging.getLogger(__name__)
 Notifier = Callable[[int, dict], None]  # (listing_id, row) -> None
 
 
+def check_search(search, s: Settings, n_details: int = 1) -> dict:
+    """Діагностика одного пошуку без запису в БД: чи парситься список і деталки."""
+    src = SOURCES.get(search.source)
+    out: dict = {"ok": False, "links": 0, "samples": [], "error": ""}
+    if not src:
+        out["error"] = f"невідоме джерело {search.source}"
+        return out
+    f = Fetcher(s.request_delay_seconds)
+    try:
+        html = f.get(search.url)
+        if not html:
+            out["error"] = "сторінка не завантажилась (бан, 404 або сайт лежить)"
+            return out
+        links = src.extract_links(html, search.url)
+        out["links"] = len(links)
+        if not links:
+            out["error"] = "0 посилань на оголошення — змінилась верстка або неправильний URL"
+            return out
+        for ext_id, url in links[:n_details]:
+            d = f.get(url)
+            if not d:
+                out["samples"].append({"url": url, "error": "деталка не завантажилась"})
+                continue
+            l = classify(src.parse_detail(d, ext_id, url))
+            weak = not l.title or len(l.description) < 50
+            out["samples"].append({"url": url, "title": l.title, "price": l.price_text, "location": l.location,
+                                   "seller": l.seller_name, "phones": l.phones, "desc_len": len(l.description),
+                                   "category": l.category, "score": l.score, "reasons": l.reasons, "weak": weak})
+        out["ok"] = not any(x.get("error") or x.get("weak") for x in out["samples"])
+        return out
+    finally:
+        f.close()
+
+
 def run_once(s: Settings, db: DB, notify: Notifier | None = None) -> dict:
     fetcher = Fetcher(s.request_delay_seconds)
     silent = s.first_run_silent and db.get_kv("first_run_done") != "1"
@@ -31,9 +65,11 @@ def run_once(s: Settings, db: DB, notify: Notifier | None = None) -> dict:
                 continue
             html = fetcher.get(search.url)
             if not html:
+                db.touch_search(search.url, -1)
                 summary["lists_failed"].append(search.name)
                 continue
             links = src.extract_links(html, search.url)
+            db.touch_search(search.url, len(links))
             if not links:
                 log.warning("%s: 0 посилань — змінилась верстка або URL пошуку", search.name)
                 summary["lists_failed"].append(f"{search.name} (0 посилань)")

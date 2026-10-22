@@ -153,3 +153,71 @@ def test_db_phone_usage_and_status(tmp_path):
     assert db.unseen(["u1", "u9"]) == ["u1", "u9"]
     db.mark_seen("u1")
     assert db.unseen(["u1", "u9"]) == ["u9"]
+
+
+# ---------- Mini App: авторизація і API ----------
+
+import json as _json
+import time as _time
+
+from fastapi.testclient import TestClient
+
+from lovec.settings import Search, Settings
+from lovec.tgauth import sign_init_data, validate_init_data
+from lovec.web import create_app, source_from_url
+
+TOKEN = "123456:TEST-token"
+
+
+def _init(uid=42, token=TOKEN, age=0):
+    return sign_init_data({"auth_date": str(int(_time.time()) - age), "query_id": "AA",
+                           "user": _json.dumps({"id": uid, "first_name": "Bohdan"})}, token)
+
+
+def test_init_data_validation():
+    assert validate_init_data(_init(), TOKEN)["id"] == 42
+    assert validate_init_data(_init(), "other:token") is None          # чужий бот
+    assert validate_init_data(_init(age=8 * 86400), TOKEN) is None     # протух
+    assert validate_init_data(_init().replace("Bohdan", "Hacker"), TOKEN) is None  # підмінили дані
+
+
+def _app(tmp_path):
+    s = Settings(db_path=str(tmp_path / "a.db"), telegram_token=TOKEN, allowed_users=[42],
+                 dashboard_password="pw",
+                 searches=[Search("Bazoš byty", "bazos", "https://reality.bazos.sk/predam/byt/", "predaj")])
+    return TestClient(create_app(s, background=False))
+
+
+def test_api_auth(tmp_path):
+    c = _app(tmp_path)
+    assert c.get("/").status_code == 200                                 # сторінка публічна, даних у ній нема
+    assert c.get("/api/leads").status_code == 401
+    assert c.get("/api/leads", headers={"X-Tg-Init-Data": _init()}).status_code == 200
+    assert c.get("/api/leads", headers={"X-Tg-Init-Data": _init(uid=7)}).status_code == 403
+    assert c.get("/api/leads", auth=("admin", "pw")).status_code == 200
+    assert c.get("/api/me", headers={"X-Tg-Init-Data": _init()}).json()["via"] == "telegram"
+
+
+def test_api_searches_and_settings(tmp_path):
+    c = _app(tmp_path)
+    h = {"X-Tg-Init-Data": _init()}
+    rows = c.get("/api/searches", headers=h).json()
+    assert [r["name"] for r in rows] == ["Bazoš byty"]                    # засіялось з конфігу
+    sid = c.post("/api/searches", headers=h, json={"url": "https://www.topreality.sk/x.html?a=1", "deal": "prenajom"}).json()["id"]
+    assert c.post("/api/searches", headers=h, json={"url": "https://www.idnes.cz/x"}).status_code == 400
+    c.patch(f"/api/searches/{sid}", headers=h, json={"enabled": False})
+    rows = {r["id"]: r for r in c.get("/api/searches", headers=h).json()}
+    assert rows[sid]["source"] == "topreality" and rows[sid]["enabled"] == 0
+    c.delete(f"/api/searches/{sid}", headers=h)
+    assert len(c.get("/api/searches", headers=h).json()) == 1
+
+    assert c.patch("/api/settings", headers=h, json={"interval_minutes": 1}).status_code == 400
+    r = c.patch("/api/settings", headers=h, json={"interval_minutes": 10, "paused": True}).json()
+    assert r["interval_minutes"] == 10 and r["paused"] is True
+    assert c.patch("/api/settings", headers=h, json={"hack": 1}).status_code == 400
+
+
+def test_source_from_url():
+    assert source_from_url("https://reality.bazos.sk/predam/byt/") == "bazos"
+    assert source_from_url("https://www.nehnutelnosti.sk/vysledky/byty") == "nehnutelnosti"
+    assert source_from_url("https://evilnehnutelnosti.sk/") is None
