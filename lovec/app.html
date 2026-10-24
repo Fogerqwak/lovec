@@ -44,6 +44,12 @@
     border: 1px solid var(--line); white-space: nowrap; }
   .chip.on { background: var(--btn); color: var(--btn-ink); border-color: var(--btn); }
   .chip .n { opacity: .7; margin-left: 4px; font-variant-numeric: tabular-nums; }
+  .chips.dist { margin-top: 8px; }
+  .chips.dist .chip { padding: 5px 10px; font-size: 13px; }
+  .chip.clear { color: var(--link); border-style: dashed; }
+  .dgrid { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px 14px; }
+  .dgrid .chip { font-size: 13px; padding: 6px 10px; }
+  .tag.d { background: color-mix(in srgb, var(--btn) 16%, transparent); }
   .bar { display: flex; gap: 8px; margin-top: 10px; }
   .bar input { flex: 1; }
   .bar select { width: auto; }
@@ -149,6 +155,7 @@
 <!-- ЛІДИ -->
 <section class="screen on" id="s-leads">
   <div class="chips" id="tabs"></div>
+  <div class="chips dist" id="dist"></div>
   <div class="bar">
     <input type="search" id="q" placeholder="Вулиця, телефон, нотатка…">
     <select id="deal"><option value="">Все</option><option value="predaj">Продаж</option><option value="prenajom">Оренда</option></select>
@@ -187,6 +194,9 @@
   <div class="group" id="set-work"></div>
   <h2>Сповіщення</h2>
   <div class="group" id="set-notify"></div>
+  <h2>Райони для пушів</h2>
+  <div class="group" id="set-dist"></div>
+  <div class="muted" style="margin:8px 4px">Нічого не вибрано — пуші з усіх районів. Ліди з інших районів однаково зберігаються і видні в списку.</div>
   <h2>Фільтр ріелторів</h2>
   <div class="group" id="set-filter"></div>
   <div class="muted" style="margin:8px 4px">Ховаються лише 100% ріелтори: ім'я з real / s.r.o. / maklér, профіль агентства, «RK ponúka» або телефон, який ти позначив «Це ріелтор». Решта приходить 🟢 або 🟡 з поясненням.</div>
@@ -258,7 +268,9 @@ function renderTabs() {
 $("#tabs").onclick = e => { const t = TABS.find(x => x.id === e.target.closest("button")?.dataset.id); if (t) { haptic(); tab = t; renderTabs(); loadLeads(); } };
 
 async function loadLeads() {
-  const p = new URLSearchParams({ category: tab.cat, status: tab.status || "", deal: $("#deal").value, q: $("#q").value });
+  const p = new URLSearchParams({ category: tab.cat, status: tab.status || "", deal: $("#deal").value, q: $("#q").value,
+    districts: [...selD].join(",") });
+  loadDistricts();
   try { leads = await api("/api/leads?" + p); } catch (e) { $("#list").innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
   $("#list").innerHTML = leads.length ? leads.map(r => `
     <button class="lead ${r.category} ${DONE.includes(r.status) ? "dim" : ""}" data-id="${r.id}">
@@ -266,7 +278,7 @@ async function loadLeads() {
       <div class="t">${esc(r.title || "без назви")}</div>
       <div class="tags">
         ${r.price_text ? `<span class="tag price">${esc(r.price_text)}</span>` : ""}
-        ${r.location ? `<span class="tag">${esc(r.location.slice(0, 28))}</span>` : ""}
+        ${r.district ? `<span class="tag d">📍 ${esc(r.district)}</span>` : (r.location ? `<span class="tag">${esc(r.location.slice(0, 28))}</span>` : "")}
         ${r.wants_no_rk ? `<span class="tag">🤫</span>` : ""}
         ${r.note ? `<span class="tag">📝</span>` : ""}
         ${r.status !== "new" ? `<span class="tag st">${STATUSES[r.status]}</span>` : ""}
@@ -277,6 +289,29 @@ async function loadLeads() {
 $("#list").onclick = e => { const b = e.target.closest(".lead"); if (b) { haptic(); location.hash = "lead-" + b.dataset.id; } };
 let qt; $("#q").oninput = () => { clearTimeout(qt); qt = setTimeout(loadLeads, 250); };
 $("#deal").onchange = loadLeads;
+
+// ---------- райони ----------
+const LS = { get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } },
+             set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} } };
+let selD = new Set(LS.get("lovec.districts", []));
+let DIST_ALL = [];
+async function loadDistricts() {
+  let d;
+  try { d = await api("/api/districts?category=" + encodeURIComponent(tab.cat)); } catch { return; }
+  DIST_ALL = d.all;
+  // показуємо райони, де є ліди (+ вибрані), за кількістю
+  const names = [...new Set([...d.all.filter(x => d.counts[x]), ...selD].filter(x => x !== "?"))]
+    .sort((a, b) => (d.counts[b] || 0) - (d.counts[a] || 0));
+  if (d.counts["?"]) names.push("?");
+  $("#dist").innerHTML = (selD.size ? `<button class="chip clear" data-d="">✕ Всі райони</button>` : "")
+    + names.map(n => `<button class="chip ${selD.has(n) ? "on" : ""}" data-d="${esc(n)}">${n === "?" ? "Невідомо" : esc(n)}<span class="n">${d.counts[n] || 0}</span></button>`).join("");
+}
+$("#dist").onclick = e => {
+  const b = e.target.closest("button"); if (!b) return; haptic();
+  const n = b.dataset.d;
+  if (!n) selD.clear(); else selD.has(n) ? selD.delete(n) : selD.add(n);
+  LS.set("lovec.districts", [...selD]); loadLeads();
+};
 
 // ---------- lead detail ----------
 async function openLead(id) {
@@ -291,6 +326,7 @@ async function openLead(id) {
       <div class="dt">${esc(r.title || "без назви")}</div>
       <div class="tags">
         ${r.price_text ? `<span class="tag price">${esc(r.price_text)}</span>` : ""}
+        ${r.district ? `<span class="tag d">📍 ${esc(r.district)}</span>` : ""}
         ${r.location ? `<span class="tag">${esc(r.location)}</span>` : ""}
         ${r.seller_name ? `<span class="tag">👤 ${esc(r.seller_name)}</span>` : ""}
       </div>
@@ -438,6 +474,7 @@ async function loadSettings() {
   AI_ON = !!S.ai;
   $("#set-notify").innerHTML = (S.ai ? toggle("ai_auto", "🤖 AI-підсумок одразу", "Для кожного нового 🟢/🟡, рядок з'явиться і в пуші") : "")
     + toggle("notify_private", "🟢 Приватні") + toggle("notify_suspicious", "🟡 Можливо приватні", "Сюди потрапляють і замасковані ріелтори");
+  renderSetDist();
   $("#set-filter").innerHTML = step("private_max", "Поріг 🟢", "м'який score ≤ цього → 🟢, вище → 🟡", -5, 5)
     + step("phone_reuse_limit", "Повтор продавця", "У скількох оголошеннях → 🟡", 2, 10);
   document.querySelectorAll("#s-settings input[data-k]").forEach(i => i.onchange = () => saveSetting(i.dataset.k, i.checked));
@@ -446,6 +483,20 @@ async function loadSettings() {
     const k = st.dataset.k, v = Math.min(+st.dataset.max, Math.max(+st.dataset.min, S[k] + +b.dataset.d));
     if (v === S[k]) return; haptic(); S[k] = v; st.querySelector("b").textContent = v; saveSetting(k, v);
   });
+}
+async function renderSetDist() {
+  if (!DIST_ALL.length) { try { DIST_ALL = (await api("/api/districts")).all; } catch { return; } }
+  const sel = new Set(S.notify_districts || []);
+  $("#set-dist").innerHTML = `<div class="dgrid">${DIST_ALL.map(n =>
+    `<button class="chip ${sel.has(n) ? "on" : ""}" data-d="${esc(n)}">${esc(n)}</button>`).join("")}</div>`
+    + `<div class="set"><div class="lbl">Район невідомий<small>Пушити, якщо з оголошення не вдалося зрозуміти район</small></div>
+       <label class="switch"><input type="checkbox" id="unk" ${S.notify_unknown_district ? "checked" : ""}><span></span></label></div>`;
+  $("#set-dist .dgrid").onclick = e => {
+    const b = e.target.closest("button"); if (!b) return; haptic();
+    sel.has(b.dataset.d) ? sel.delete(b.dataset.d) : sel.add(b.dataset.d);
+    b.classList.toggle("on"); saveSetting("notify_districts", [...sel]);
+  };
+  $("#unk").onchange = e => saveSetting("notify_unknown_district", e.target.checked);
 }
 async function saveSetting(k, v) {
   try { S = await api("/api/settings", { method: "PATCH", body: { [k]: v } }); toast("Збережено"); if (k === "paused") loadStats(); }

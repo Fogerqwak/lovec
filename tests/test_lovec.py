@@ -133,7 +133,9 @@ def test_bazos_detail():
     assert l.seller_name == "Ján"
     assert "idmeno=123" in l.extra["user_url"]
     assert l.extra["seller_key"] == "bz:1"
-    assert "Ružinov" in l.location
+    from lovec.districts import detect
+    assert l.location == "Bratislava 821 09"
+    assert detect(l.location, l.title, l.description) == "Ružinov"
     assert classify(l).category == "private"
 
 
@@ -373,3 +375,53 @@ def test_ai_provider_from_env(monkeypatch, tmp_path):
     monkeypatch.setenv("GEMINI_API_KEY", "g-key")
     s = load(str(cfg))
     assert (s.ai_provider, s.ai_api_key) == ("gemini", "g-key")
+
+
+# ---------- райони ----------
+
+def test_district_detection():
+    from lovec.districts import detect
+    assert detect("Račianska, Bratislava-Nové Mesto, okres Bratislava III") == "Nové Mesto"
+    assert detect("Bratislava 821 07") == "Vrakuňa"
+    assert detect("Bratislava 841 07") == "Devínska Nová Ves"
+    assert detect("Bratislava 851 07") == "Petržalka"
+    assert detect("", "Prenajmem 2i byt Nivy") == "Ružinov"
+    assert detect("Senec 900 42", "5-izbový dom – Dunajská Lužná") == "Mimo BA"
+    assert detect("Bratislava", "Byt", "Karlova Ves, krásny výhľad na hrad Devín") == "Karlova Ves"
+    assert detect("Bratislava", "Ahoj, prenajmem byt") is None
+
+
+def test_district_filter_api_and_push(tmp_path, monkeypatch):
+    s = Settings(db_path=str(tmp_path / "d.db"), telegram_token=TOKEN, allowed_users=[42], searches=[])
+    c = TestClient(create_app(s, background=False))
+    db = DB(s.db_path)
+    for i, (loc, d) in enumerate([("Bratislava-Petržalka", "Petržalka"), ("Bratislava-Ružinov", "Ružinov"), ("", None)]):
+        l = classify(Listing("bazos", str(i), f"u{i}", title="Prenajmem byt", description="Prenajmem byt.", location=loc))
+        l.district = d
+        db.save(l, "s", "prenajom")
+    h = {"X-Tg-Init-Data": _init()}
+    assert len(c.get("/api/leads?districts=Petržalka", headers=h).json()) == 1
+    assert len(c.get("/api/leads?districts=Petržalka,?", headers=h).json()) == 2
+    d = c.get("/api/districts", headers=h).json()
+    assert d["counts"]["Petržalka"] == 1 and d["counts"]["?"] == 1 and "Čunovo" in d["all"]
+    assert c.patch("/api/settings", headers=h, json={"notify_districts": ["Marsa"]}).status_code == 400
+    r = c.patch("/api/settings", headers=h, json={"notify_districts": ["Ružinov"], "notify_unknown_district": False}).json()
+    assert r["notify_districts"] == ["Ružinov"]
+
+    # пуш лише з вибраного району
+    from lovec import http as lhttp, scraper
+    from lovec.settings import effective
+    det = (BAZOS_DETAIL.replace("Mlynských Nivách", "Slnečniciach").replace("821 09", "851 07")
+           .replace("byt, Nivy", "byt, Slnečnice"))
+    def fake_get(self, url, retries=2):
+        if "/predam/" in url:
+            return '<a href="/inzerat/77/a.php">a</a>'
+        return det if "/inzerat/77/" in url else None
+    monkeypatch.setattr(lhttp.Fetcher, "get", fake_get)
+    db.set_kv("first_run_done", "1")
+    db.add_search("x", "bazos", "https://reality.bazos.sk/predam/byt/", "predaj")
+    sent = []
+    eff = effective(s, db); eff.request_delay_seconds = (0, 0)
+    scraper.run_once(eff, db, lambda lid, row: sent.append(row))
+    assert sent == []                                        # Петржалка, а пушимо лише Ружинов
+    assert db.leads(districts=["Petržalka"])[-1]["ext_id"] in ("0", "77")

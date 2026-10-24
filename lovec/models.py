@@ -20,6 +20,7 @@ class Listing:
     site_private_flag: bool | None = None
     page_markers: list[str] = field(default_factory=list)
     extra: dict = field(default_factory=dict)
+    district: str | None = None
 
     # Заповнює класифікатор
     score: int = 0

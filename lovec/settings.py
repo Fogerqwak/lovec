@@ -42,11 +42,14 @@ class Settings:
     ai_model: str = ""      # порожньо = модель за замовчуванням провайдера
     ai_base_url: str = ""
     ai_auto: bool = False  # підсумок для кожного нового 🟢/🟡 одразу
+    notify_districts: list[str] = field(default_factory=list)  # порожньо = всі райони
+    notify_unknown_district: bool = True  # пушити, якщо район не вдалося визначити
     paused: bool = False
 
     # Що можна міняти з Mini App (зберігається в БД поверх config.yaml)
     TUNABLE = {"interval_minutes": int, "max_new_per_run": int, "private_max": int, "suspicious_max": int,
-               "phone_reuse_limit": int, "notify_private": bool, "notify_suspicious": bool, "paused": bool, "ai_auto": bool}
+               "phone_reuse_limit": int, "notify_private": bool, "notify_suspicious": bool, "paused": bool, "ai_auto": bool,
+               "notify_districts": list, "notify_unknown_district": bool}
 
 
 def load(config_path: str | None = None) -> Settings:

@@ -11,20 +11,17 @@ from ..models import Listing
 from .base import Source, clean, parse_price
 
 
-BA_DISTRICTS = {"811": "Staré Mesto", "821": "Ružinov / Vrakuňa / Podunajské Biskupice",
-                "831": "Nové Mesto / Rača / Vajnory", "841": "Karlova Ves / Dúbravka / Lamač / Devín / DNV",
-                "851": "Petržalka / Jarovce / Rusovce / Čunovo"}
 PSC_RE = re.compile(r"\b(\d{3})\s?(\d{2})\b")
 
 
 def bazos_location(val: str) -> str:
+    """«Mapa | 851 07 Bratislava» -> «Bratislava 851 07» (район рахує lovec.districts)."""
     val = re.sub(r"^\s*Mapa\s*\|?\s*", "", val or "").strip()
     m = PSC_RE.search(val)
     if not m:
         return val[:60]
-    city = clean(PSC_RE.sub("", val)).strip(" |,") or ""
-    district = BA_DISTRICTS.get(m.group(1)) if "bratislava" in city.lower() else None
-    return f"{city} {m.group(1)} {m.group(2)}" + (f" · {district}" if district else "")
+    city = clean(PSC_RE.sub("", val)).strip(" |,")
+    return f"{city} {m.group(1)} {m.group(2)}".strip()
 
 
 class Bazos(Source):

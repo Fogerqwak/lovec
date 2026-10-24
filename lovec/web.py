@@ -142,8 +142,10 @@ def create_app(base: Settings | None = None, background: bool = True) -> FastAPI
 
     # ---------- ліди ----------
     @app.get("/api/leads", dependencies=A)
-    def leads(category: str = "private,suspicious", status: str = "", deal: str = "", q: str = ""):
-        rows = db.leads(category or None, None, deal or None, q or None)
+    def leads(category: str = "private,suspicious", status: str = "", deal: str = "", q: str = "",
+              districts: str = ""):
+        rows = db.leads(category or None, None, deal or None, q or None,
+                        districts=[d for d in districts.split(",") if d] or None)
         if status:
             wanted = set(status.split(","))
             rows = [r for r in rows if r["status"] in wanted]
@@ -187,6 +189,12 @@ def create_app(base: Settings | None = None, background: bool = True) -> FastAPI
         if not db.set_status(lid, p.status, p.note):
             raise HTTPException(404)
         return {"ok": True}
+
+    @app.get("/api/districts", dependencies=A)
+    def districts(category: str = "private,suspicious"):
+        from .districts import DISTRICTS, OUTSIDE
+        counts = db.district_counts(category)
+        return {"all": DISTRICTS + [OUTSIDE], "counts": counts}
 
     @app.get("/api/stats", dependencies=A)
     def stats():
@@ -252,6 +260,10 @@ def create_app(base: Settings | None = None, background: bool = True) -> FastAPI
         for k, v in p.items():
             if k not in Settings.TUNABLE:
                 raise HTTPException(400, f"невідомий параметр {k}")
+            if k == "notify_districts":
+                from .districts import DISTRICTS, OUTSIDE
+                if not isinstance(v, list) or any(d not in DISTRICTS + [OUTSIDE] for d in v):
+                    raise HTTPException(400, "невідомий район")
             try:
                 overrides[k] = Settings.TUNABLE[k](v)
             except (TypeError, ValueError):

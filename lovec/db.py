@@ -83,6 +83,19 @@ class DB:
             cols = {r["name"] for r in c.execute("PRAGMA table_info(listings)")}
             if "ai" not in cols:
                 c.execute("ALTER TABLE listings ADD COLUMN ai TEXT")
+            if "district" not in cols:
+                c.execute("ALTER TABLE listings ADD COLUMN district TEXT")
+        self._backfill_districts()
+
+    def _backfill_districts(self) -> None:
+        if self.get_kv("districts_v1") == "1":
+            return
+        from .districts import detect
+        with self.conn() as c:
+            for r in c.execute("SELECT id, location, title, description FROM listings").fetchall():
+                c.execute("UPDATE listings SET district=? WHERE id=?",
+                          (detect(r["location"] or "", r["title"] or "", r["description"] or ""), r["id"]))
+        self.set_kv("districts_v1", "1")
 
     @contextmanager
     def conn(self):
@@ -209,12 +222,13 @@ class DB:
             c.execute(
                 """INSERT INTO listings(key,source,ext_id,url,search_name,deal,title,price_eur,price_text,
                        location,description,seller_name,phones,seller_listing_count,score,category,reasons,
-                       wants_no_rk,first_seen,updated_at)
-                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                       wants_no_rk,first_seen,updated_at,district)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                    ON CONFLICT(key) DO NOTHING""",
                 (l.key, l.source, l.ext_id, l.url, search_name, deal, l.title, l.price_eur, l.price_text,
                  l.location, l.description[:5000], l.seller_name, ",".join(l.phones), l.seller_listing_count,
-                 l.score, l.category, json.dumps(l.reasons, ensure_ascii=False), int(l.wants_no_rk), now(), now()),
+                 l.score, l.category, json.dumps(l.reasons, ensure_ascii=False), int(l.wants_no_rk), now(), now(),
+                 l.district),
             )
             row = c.execute("SELECT id FROM listings WHERE key=?", (l.key,)).fetchone()
             lid = row["id"]
@@ -253,9 +267,18 @@ class DB:
             return dict(r) if r else None
 
     def leads(self, category: str | None = None, status: str | None = None, deal: str | None = None,
-              q: str | None = None, limit: int = 300) -> list[dict]:
+              q: str | None = None, limit: int = 300, districts: list[str] | None = None) -> list[dict]:
         sql = "SELECT * FROM listings WHERE 1=1"
         args: list = []
+        if districts:
+            named = [d for d in districts if d != "?"]
+            parts = []
+            if named:
+                parts.append(f"district IN ({','.join('?' * len(named))})")
+                args += named
+            if "?" in districts:
+                parts.append("district IS NULL")
+            sql += " AND (" + " OR ".join(parts) + ")"
         if category:
             cats = category.split(",")
             sql += f" AND category IN ({','.join('?' * len(cats))})"
@@ -273,6 +296,13 @@ class DB:
         args.append(limit)
         with self.conn() as c:
             return [dict(r) for r in c.execute(sql, args)]
+
+    def district_counts(self, category: str = "private,suspicious") -> dict:
+        cats = category.split(",")
+        with self.conn() as c:
+            return {(r["district"] or "?"): r["n"] for r in c.execute(
+                f"SELECT district, COUNT(*) n FROM listings WHERE category IN ({','.join('?' * len(cats))}) "
+                "GROUP BY district", cats)}
 
     def stats(self) -> dict:
         with self.conn() as c:

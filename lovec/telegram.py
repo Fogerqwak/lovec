@@ -30,7 +30,10 @@ def render(row: dict, public_url: str = "") -> str:
     deal = "продаж" if row.get("deal") == "predaj" else "оренда"
     lines = [f"{head} · {deal} · {SOURCE_NAMES.get(row['source'], row['source'])}",
              f'<a href="{e(row["url"])}">{e(row["title"] or "без назви")}</a>']
-    meta = [x for x in [row.get("price_text"), row.get("location")] if x]
+    loc = row.get("location") or ""
+    if row.get("district") and row["district"].split()[0].lower() not in loc.lower():
+        loc = f"{row['district']} · {loc}" if loc else row["district"]
+    meta = [x for x in [row.get("price_text"), loc] if x]
     if meta:
         lines.append("💶 " + " · ".join(e(x) for x in meta))
     if row.get("phones"):
