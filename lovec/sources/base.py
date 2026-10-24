@@ -84,7 +84,8 @@ class Source:
         if l.price_eur is None:
             l.price_eur, l.price_text = parse_price(self._price_zone(soup) or l.title + " " + l.description[:600])
 
-        l.location = clean(ld.get("locality") or "")
+        loc = clean(ld.get("locality") or "")
+        l.location = "" if loc.lower() in ("slovensko", "slovakia", "sk") else loc  # країна — не локація
         l.seller_name = clean(ld.get("seller") or "")
 
         page_text = clean(soup.get_text(" "))

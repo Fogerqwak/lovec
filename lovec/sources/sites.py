@@ -60,9 +60,12 @@ class Nehnutelnosti(Source):
             l.site_private_flag = False
         if "sukromna_osoba" in l.page_markers and l.site_private_flag is None:
             l.site_private_flag = True
-        m = re.search(r"okres [^,]{3,40}", page_text)
-        if m and not l.location:
-            l.location = m.group(0)
+        if not l.location:
+            m = re.search(r"Bratislava\s?-\s?[A-ZÁČĎÉÍĽĹŇÓÔŔŠŤÚÝŽ][\wáäčďéíľĺňóôŕšťúýž]+(?:\s[A-ZÁČĎÉÍĽĹŇÓÔŔŠŤÚÝŽ][\wáäčďéíľĺňóôŕšťúýž]+)?",
+                          l.title + " " + page_text)
+            m = m or re.search(r"okres [^,]{3,40}", page_text)
+            if m:
+                l.location = m.group(0)
 
 
 class RealitySk(Source):
