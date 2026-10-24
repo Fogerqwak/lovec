@@ -80,6 +80,20 @@
   .st-btn { padding: 10px 8px; border-radius: 10px; background: var(--soft); font-size: 14px; text-align: left; }
   .st-btn.on { background: var(--btn); color: var(--btn-ink); }
   .reasons { font-size: 13px; color: var(--hint); line-height: 1.6; }
+  .ai { border: 1px solid color-mix(in srgb, var(--btn) 35%, transparent); }
+  .ai .tl { font-weight: 600; margin-bottom: 8px; }
+  .ai dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; margin: 0 0 8px; font-size: 14px; }
+  .ai dt { color: var(--hint); } .ai dd { margin: 0; }
+  .ai .k { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--hint); margin: 10px 0 3px; }
+  .ai ul { margin: 0; padding-left: 18px; font-size: 14px; }
+  .ai .say { background: var(--soft); border-radius: 10px; padding: 10px; font-size: 14px; font-style: italic; }
+  .ai .foot { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; font-size: 12px; color: var(--hint); }
+  .ai .foot button { color: var(--link); font-size: 13px; }
+  .verdict { display: inline-block; border-radius: 6px; padding: 2px 8px; font-size: 13px; font-weight: 600; }
+  .verdict.owner { background: color-mix(in srgb, var(--green) 20%, transparent); }
+  .verdict.agent { background: color-mix(in srgb, var(--red) 20%, transparent); }
+  .verdict.unclear { background: color-mix(in srgb, var(--yellow) 22%, transparent); }
+  .lead .tl { font-size: 13px; color: var(--hint); margin-top: 6px; }
   .warn { background: color-mix(in srgb, var(--yellow) 16%, transparent); border-radius: 10px; padding: 10px 12px;
     font-size: 14px; margin-top: 10px; }
 
@@ -257,6 +271,7 @@ async function loadLeads() {
         ${r.note ? `<span class="tag">📝</span>` : ""}
         ${r.status !== "new" ? `<span class="tag st">${STATUSES[r.status]}</span>` : ""}
       </div>
+      ${r.ai?.tldr ? `<div class="tl">🤖 ${esc(r.ai.tldr)}</div>` : ""}
     </button>`).join("") : `<div class="empty">Тут поки порожньо.<br>Нові ліди прилетять у бот і з'являться тут.</div>`;
 }
 $("#list").onclick = e => { const b = e.target.closest(".lead"); if (b) { haptic(); location.hash = "lead-" + b.dataset.id; } };
@@ -286,6 +301,7 @@ async function openLead(id) {
         || `<div class="muted" style="margin-bottom:8px">Телефон на сайті прихований — відкрий оголошення.</div>`}
       <button class="btn ghost" style="width:100%" id="open-ad">Відкрити оголошення ↗</button>
     </div>
+    ${AI_ON || r.ai ? `<h2>🤖 AI-підсумок</h2><div class="sec ai" id="ai-box" style="margin-top:0">${renderAI(r.ai)}</div>` : ""}
     <h2>Статус</h2>
     <div class="grid" id="st-grid">${Object.entries(STATUSES).map(([k, v]) => `<button class="st-btn ${k === r.status ? "on" : ""}" data-st="${k}">${v}</button>`).join("")}</div>
     <h2>Нотатка</h2>
@@ -295,6 +311,7 @@ async function openLead(id) {
     <div class="sec reasons" style="margin-top:0">${r.reasons.map(esc).join("<br>") || "—"}</div>
     <div style="height:12px"></div>`;
   $("#open-ad").onclick = () => openExternal(r.url);
+  bindAI(r);
   el.querySelectorAll("[data-copy]").forEach(b => b.onclick = async () => {
     try { await navigator.clipboard.writeText(b.dataset.copy); notifyH(); toast("Скопійовано"); } catch { toast(b.dataset.copy); }
   });
@@ -318,6 +335,41 @@ async function openLead(id) {
   }
 }
 tg?.MainButton?.onClick(() => document.activeElement?.blur());
+
+// ---------- AI ----------
+let AI_ON = false;
+const VERDICT = { owner: "Власник", agent: "Ріелтор", unclear: "Неясно" };
+const FACTS = { type: "Тип", area_m2: "Площа, м²", price: "Ціна", extra_costs: "Платежі", deposit: "Застава",
+  available_from: "Вільно з", furnished: "Меблі", pets: "Тварини", parking: "Паркінг", location: "Де" };
+function renderAI(ai) {
+  if (!ai) return `<div class="muted" style="margin-bottom:10px">Коротко про оголошення, власник чи ріелтор, ризики і з чого почати дзвінок.</div>
+    <button class="btn" style="width:100%" id="ai-go">Зробити підсумок</button>`;
+  const f = ai.facts || {}, s = ai.seller || {};
+  const list = a => (a || []).filter(Boolean).map(x => `<li>${esc(x)}</li>`).join("");
+  const facts = Object.entries(FACTS).filter(([k]) => f[k] != null && f[k] !== "").map(([k, l]) => `<dt>${l}</dt><dd>${esc(f[k])}</dd>`).join("");
+  return `
+    <div class="tl">${esc(ai.tldr || "")}</div>
+    ${s.verdict ? `<div style="margin-bottom:8px"><span class="verdict ${esc(s.verdict)}">${VERDICT[s.verdict] || esc(s.verdict)}</span> <span class="muted">${esc(s.why || "")}</span></div>` : ""}
+    ${facts ? `<dl>${facts}</dl>` : ""}
+    ${list(ai.pluses) ? `<div class="k">Плюси</div><ul>${list(ai.pluses)}</ul>` : ""}
+    ${list(ai.risks) ? `<div class="k">Ризики</div><ul>${list(ai.risks)}</ul>` : ""}
+    ${ai.pitch ? `<div class="k">Як зайти</div><div style="font-size:14px">${esc(ai.pitch)}</div>` : ""}
+    ${ai.opener_sk ? `<div class="k">Перша фраза</div><div class="say" data-copy="${esc(ai.opener_sk)}">«${esc(ai.opener_sk)}» <span class="muted">· копіювати</span></div>` : ""}
+    ${list(ai.questions) ? `<div class="k">Спитати</div><ul>${list(ai.questions)}</ul>` : ""}
+    <div class="foot"><span>${esc(ai._model || "")}</span>${AI_ON ? `<button id="ai-go">Оновити</button>` : ""}</div>`;
+}
+function bindAI(r) {
+  const box = $("#ai-box"); if (!box) return;
+  box.querySelectorAll("[data-copy]").forEach(b => b.onclick = async () => {
+    try { await navigator.clipboard.writeText(b.dataset.copy); notifyH(); toast("Скопійовано"); } catch { toast("Не вдалось скопіювати"); }
+  });
+  const go = $("#ai-go"); if (!go) return;
+  go.onclick = async () => {
+    haptic("medium"); go.disabled = true; go.textContent = "Думаю… (5–15 с)";
+    try { const upd = await api(`/api/leads/${r.id}/ai`, { method: "POST" }); r.ai = upd.ai; box.innerHTML = renderAI(r.ai); notifyH(); bindAI(r); }
+    catch (e) { notifyH("error"); toast(e.message); go.disabled = false; go.textContent = "Спробувати ще"; }
+  };
+}
 
 // ---------- searches ----------
 async function loadSearches() {
@@ -383,7 +435,9 @@ async function loadSettings() {
   $("#set-work").innerHTML = toggle("paused", "Пауза", "Зупинити перевірку сайтів")
     + step("interval_minutes", "Інтервал, хв", "Мінімум 3 — інакше забанять", 3, 120)
     + step("max_new_per_run", "Нових за прохід", "Скільки оголошень відкривати за раз", 5, 100);
-  $("#set-notify").innerHTML = toggle("notify_private", "🟢 Приватні") + toggle("notify_suspicious", "🟡 Можливо приватні", "Сюди потрапляють і замасковані ріелтори");
+  AI_ON = !!S.ai;
+  $("#set-notify").innerHTML = (S.ai ? toggle("ai_auto", "🤖 AI-підсумок одразу", "Для кожного нового 🟢/🟡, рядок з'явиться і в пуші") : "")
+    + toggle("notify_private", "🟢 Приватні") + toggle("notify_suspicious", "🟡 Можливо приватні", "Сюди потрапляють і замасковані ріелтори");
   $("#set-filter").innerHTML = step("private_max", "Поріг 🟢", "м'який score ≤ цього → 🟢, вище → 🟡", -5, 5)
     + step("phone_reuse_limit", "Повтор продавця", "У скількох оголошеннях → 🟡", 2, 10);
   document.querySelectorAll("#s-settings input[data-k]").forEach(i => i.onchange = () => saveSetting(i.dataset.k, i.checked));
@@ -415,7 +469,8 @@ $("#run").onclick = async () => { haptic("medium"); const r = await api("/api/ru
 function route() { const m = location.hash.match(/^#lead-(\d+)/); if (m) openLead(m[1]); }
 window.addEventListener("hashchange", () => { if (location.hash.startsWith("#lead-")) route(); else if ($("#s-lead").classList.contains("on")) show("leads"); });
 renderTabs();
-if (location.hash.startsWith("#lead-")) route(); else loadLeads();
+api("/api/settings").then(s => { AI_ON = !!s.ai; }).catch(() => {})
+  .finally(() => { if (location.hash.startsWith("#lead-")) route(); else loadLeads(); });
 setInterval(() => { if ($("#s-leads").classList.contains("on") && !document.activeElement.matches("input,textarea")) loadLeads(); }, 60000);
 </script>
 </body>

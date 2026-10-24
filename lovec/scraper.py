@@ -123,6 +123,12 @@ def run_once(s: Settings, db: DB, notify: Notifier | None = None) -> dict:
 
                 want = (l.category == "private" and s.notify_private) or \
                        (l.category == "suspicious" and s.notify_suspicious)
+                if l.category != "agency" and s.ai_auto and s.anthropic_api_key:
+                    try:
+                        from .ai import summarize
+                        db.set_ai(lid, summarize(db.get(lid), s.anthropic_api_key, s.ai_model))
+                    except Exception as e:  # noqa: BLE001 — AI не має ламати пуш
+                        log.warning("AI summary %s: %s", lid, e)
                 if want and notify:
                     try:
                         notify(lid, db.get(lid))

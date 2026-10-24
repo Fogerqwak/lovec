@@ -80,6 +80,9 @@ class DB:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         with self.conn() as c:
             c.executescript(SCHEMA)
+            cols = {r["name"] for r in c.execute("PRAGMA table_info(listings)")}
+            if "ai" not in cols:
+                c.execute("ALTER TABLE listings ADD COLUMN ai TEXT")
 
     @contextmanager
     def conn(self):
@@ -239,6 +242,10 @@ class DB:
         if status == "agent":
             self.blacklist_listing_phones(lid)
         return dict(r) if r else None
+
+    def set_ai(self, lid: int, ai: dict) -> None:
+        with self.conn() as c:
+            c.execute("UPDATE listings SET ai=? WHERE id=?", (json.dumps(ai, ensure_ascii=False), lid))
 
     def get(self, lid: int) -> dict | None:
         with self.conn() as c:

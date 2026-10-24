@@ -296,3 +296,47 @@ def test_rentals_first_and_rent_pack(tmp_path):
     assert sum(r["deal"] == "prenajom" for r in rows) == 3
     db.migrate_searches()
     assert len(db.searches()) == len(rows)  # ідемпотентно
+
+
+# ---------- AI-підсумок ----------
+
+def test_ai_summary_endpoint(tmp_path, monkeypatch):
+    import httpx as _httpx
+    from lovec import ai as ai_mod
+    calls = {}
+
+    class R:
+        status_code = 200
+        def json(self):
+            return {"content": [{"type": "text", "text": 'Ось: {"tldr": "Гарсоньєра в Петржалці", '
+                     '"seller": {"verdict": "owner", "why": "пише від себе"}, "facts": {"price": "650 €/міс"}, '
+                     '"opener_sk": "Dobrý deň, volám kvôli inzerátu."}'}], "usage": {"input_tokens": 900}}
+
+    def fake_post(url, **kw):
+        calls["url"], calls["kw"] = url, kw
+        return R()
+    monkeypatch.setattr(_httpx, "post", fake_post)
+
+    s = Settings(db_path=str(tmp_path / "ai.db"), telegram_token=TOKEN, allowed_users=[42],
+                 anthropic_api_key="sk-test", searches=[])
+    c = TestClient(create_app(s, background=False))
+    db = DB(s.db_path)
+    lid = db.save(classify(L("Prenajmem garsónku", "Prenajmem svoju garsónku v Petržalke za 650 €.")), "s", "prenajom")
+    h = {"X-Tg-Init-Data": _init()}
+    assert c.get("/api/settings", headers=h).json()["ai"] is True
+    r = c.post(f"/api/leads/{lid}/ai", headers=h).json()
+    assert r["ai"]["seller"]["verdict"] == "owner"
+    assert calls["kw"]["headers"]["x-api-key"] == "sk-test"
+    assert calls["kw"]["json"]["model"] == "claude-haiku-5-5"
+    assert "Prenajmem svoju garsónku" in calls["kw"]["json"]["messages"][0]["content"]
+    assert c.get("/api/leads", headers=h).json()[0]["ai"]["tldr"] == "Гарсоньєра в Петржалці"
+    from lovec.telegram import render
+    assert "🤖 Гарсоньєра в Петржалці · схоже на власника" in render(db.get(lid))
+
+
+def test_ai_without_key(tmp_path):
+    s = Settings(db_path=str(tmp_path / "n.db"), telegram_token=TOKEN, allowed_users=[42], searches=[])
+    c = TestClient(create_app(s, background=False))
+    lid = DB(s.db_path).save(classify(L("Predám", "Predám byt.")), "s", "predaj")
+    r = c.post(f"/api/leads/{lid}/ai", headers={"X-Tg-Init-Data": _init()})
+    assert r.status_code == 400 and "ANTHROPIC_API_KEY" in r.json()["detail"]

@@ -149,15 +149,35 @@ def create_app(base: Settings | None = None, background: bool = True) -> FastAPI
             rows = [r for r in rows if r["status"] in wanted]
         for r in rows:
             r["reasons"] = json.loads(r.get("reasons") or "[]")
+            ai = json.loads(r["ai"]) if r.get("ai") else None
+            r["ai"] = {"tldr": ai.get("tldr"), "verdict": (ai.get("seller") or {}).get("verdict")} if ai else None
+            r["description"] = (r.get("description") or "")[:300]
         return rows
 
-    @app.get("/api/leads/{lid}", dependencies=A)
-    def lead(lid: int):
+    def _lead(lid: int) -> dict:
         r = db.get(lid)
         if not r:
             raise HTTPException(404)
         r["reasons"] = json.loads(r.get("reasons") or "[]")
+        r["ai"] = json.loads(r["ai"]) if r.get("ai") else None
         return r
+
+    @app.get("/api/leads/{lid}", dependencies=A)
+    def lead(lid: int):
+        return _lead(lid)
+
+    @app.post("/api/leads/{lid}/ai", dependencies=A)
+    async def lead_ai(lid: int):
+        from .ai import AIError, summarize
+        row = db.get(lid)
+        if not row:
+            raise HTTPException(404)
+        try:
+            ai = await asyncio.to_thread(summarize, row, base.anthropic_api_key, base.ai_model)
+        except AIError as e:
+            raise HTTPException(400, str(e))
+        db.set_ai(lid, ai)
+        return _lead(lid)
 
     @app.patch("/api/leads/{lid}", dependencies=A)
     def patch_lead(lid: int, p: LeadPatch):
@@ -222,7 +242,8 @@ def create_app(base: Settings | None = None, background: bool = True) -> FastAPI
     def get_settings():
         s = cur()
         return {k: getattr(s, k) for k in Settings.TUNABLE} | {
-            "sources": list(SOURCES), "telegram": bool(base.telegram_token and base.telegram_chat_id)}
+            "sources": list(SOURCES), "telegram": bool(base.telegram_token and base.telegram_chat_id),
+            "ai": bool(base.anthropic_api_key)}
 
     @app.patch("/api/settings", dependencies=A)
     def patch_settings(p: dict):

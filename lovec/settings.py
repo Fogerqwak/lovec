@@ -37,11 +37,14 @@ class Settings:
     dashboard_password: str = ""
     public_url: str = ""  # напр. https://lovec.example.com — для посилань у Telegram
     allowed_users: list[int] = field(default_factory=list)  # Telegram user id з доступом до Mini App
+    anthropic_api_key: str = ""
+    ai_model: str = "claude-haiku-5-5"
+    ai_auto: bool = False  # підсумок для кожного нового 🟢/🟡 одразу
     paused: bool = False
 
     # Що можна міняти з Mini App (зберігається в БД поверх config.yaml)
     TUNABLE = {"interval_minutes": int, "max_new_per_run": int, "private_max": int, "suspicious_max": int,
-               "phone_reuse_limit": int, "notify_private": bool, "notify_suspicious": bool, "paused": bool}
+               "phone_reuse_limit": int, "notify_private": bool, "notify_suspicious": bool, "paused": bool, "ai_auto": bool}
 
 
 def load(config_path: str | None = None) -> Settings:
@@ -68,6 +71,8 @@ def load(config_path: str | None = None) -> Settings:
         dashboard_user=os.getenv("DASHBOARD_USER", "admin"),
         dashboard_password=os.getenv("DASHBOARD_PASSWORD", ""),
         public_url=os.getenv("PUBLIC_URL", "").rstrip("/"),
+        anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", ""),
+        ai_model=os.getenv("AI_MODEL", "claude-haiku-5-5"),
         allowed_users=[int(x) for x in os.getenv("TELEGRAM_ALLOWED_USERS", "").replace(" ", "").split(",") if x],
     )
     # Особистий чат з ботом: chat_id == user_id, тож власник має доступ без додаткових налаштувань

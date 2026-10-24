@@ -39,6 +39,12 @@ def render(row: dict, public_url: str = "") -> str:
         lines.append(f"👤 {e(row['seller_name'])}")
     if row.get("wants_no_rk"):
         lines.append("🤫 <i>Просить без ріелторів — заходь з цінністю, не з «продам вашу квартиру»</i>")
+    if row.get("ai"):
+        try:
+            from .ai import one_liner
+            lines.append(f"🤖 {e(one_liner(json.loads(row['ai'])))}")
+        except (ValueError, TypeError):
+            pass
     desc = (row.get("description") or "")[:280]
     if desc:
         lines.append(f"\n<i>{e(desc)}{'…' if len(row.get('description') or '') > 280 else ''}</i>")
