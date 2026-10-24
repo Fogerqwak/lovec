@@ -191,9 +191,9 @@ def create_app(base: Settings | None = None, background: bool = True) -> FastAPI
         return {"ok": True}
 
     @app.get("/api/districts", dependencies=A)
-    def districts(category: str = "private,suspicious"):
+    def districts(category: str = "private,suspicious", deal: str = ""):
         from .districts import DISTRICTS, OUTSIDE
-        counts = db.district_counts(category)
+        counts = db.district_counts(category, deal)
         return {"all": DISTRICTS + [OUTSIDE], "counts": counts}
 
     @app.get("/api/stats", dependencies=A)

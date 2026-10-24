@@ -297,12 +297,15 @@ class DB:
         with self.conn() as c:
             return [dict(r) for r in c.execute(sql, args)]
 
-    def district_counts(self, category: str = "private,suspicious") -> dict:
+    def district_counts(self, category: str = "private,suspicious", deal: str = "") -> dict:
         cats = category.split(",")
+        sql = f"SELECT district, COUNT(*) n FROM listings WHERE category IN ({','.join('?' * len(cats))})"
+        args = list(cats)
+        if deal:
+            sql += " AND deal=?"
+            args.append(deal)
         with self.conn() as c:
-            return {(r["district"] or "?"): r["n"] for r in c.execute(
-                f"SELECT district, COUNT(*) n FROM listings WHERE category IN ({','.join('?' * len(cats))}) "
-                "GROUP BY district", cats)}
+            return {(r["district"] or "?"): r["n"] for r in c.execute(sql + " GROUP BY district", args)}
 
     def stats(self) -> dict:
         with self.conn() as c:

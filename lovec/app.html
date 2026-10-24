@@ -158,7 +158,7 @@
   <div class="chips dist" id="dist"></div>
   <div class="bar">
     <input type="search" id="q" placeholder="Вулиця, телефон, нотатка…">
-    <select id="deal"><option value="">Все</option><option value="predaj">Продаж</option><option value="prenajom">Оренда</option></select>
+    <select id="deal"><option value="prenajom">Оренда</option><option value="predaj">Продаж</option><option value="">Все</option></select>
   </div>
   <div class="list" id="list"></div>
 </section>
@@ -211,6 +211,8 @@
 
 <script>
 const tg = window.Telegram?.WebApp;
+const LS = { get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } },
+             set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} } };
 const inTg = !!(tg && tg.initData);
 if (inTg) { document.documentElement.classList.add("tg"); tg.ready(); tg.expand(); }
 const haptic = (t = "light") => tg?.HapticFeedback?.impactOccurred?.(t);
@@ -288,16 +290,15 @@ async function loadLeads() {
 }
 $("#list").onclick = e => { const b = e.target.closest(".lead"); if (b) { haptic(); location.hash = "lead-" + b.dataset.id; } };
 let qt; $("#q").oninput = () => { clearTimeout(qt); qt = setTimeout(loadLeads, 250); };
-$("#deal").onchange = loadLeads;
+$("#deal").value = LS.get("lovec.deal", "prenajom");
+$("#deal").onchange = () => { LS.set("lovec.deal", $("#deal").value); loadLeads(); };
 
 // ---------- райони ----------
-const LS = { get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } },
-             set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} } };
 let selD = new Set(LS.get("lovec.districts", []));
 let DIST_ALL = [];
 async function loadDistricts() {
   let d;
-  try { d = await api("/api/districts?category=" + encodeURIComponent(tab.cat)); } catch { return; }
+  try { d = await api(`/api/districts?category=${encodeURIComponent(tab.cat)}&deal=${$("#deal").value}`); } catch { return; }
   DIST_ALL = d.all;
   // показуємо райони, де є ліди (+ вибрані), за кількістю
   const names = [...new Set([...d.all.filter(x => d.counts[x]), ...selD].filter(x => x !== "?"))]
