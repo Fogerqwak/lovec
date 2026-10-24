@@ -173,7 +173,8 @@ def create_app(base: Settings | None = None, background: bool = True) -> FastAPI
         if not row:
             raise HTTPException(404)
         try:
-            ai = await asyncio.to_thread(summarize, row, base.anthropic_api_key, base.ai_model)
+            ai = await asyncio.to_thread(summarize, row, base.ai_provider, base.ai_api_key,
+                                         base.ai_model, base.ai_base_url)
         except AIError as e:
             raise HTTPException(400, str(e))
         db.set_ai(lid, ai)
@@ -243,7 +244,7 @@ def create_app(base: Settings | None = None, background: bool = True) -> FastAPI
         s = cur()
         return {k: getattr(s, k) for k in Settings.TUNABLE} | {
             "sources": list(SOURCES), "telegram": bool(base.telegram_token and base.telegram_chat_id),
-            "ai": bool(base.anthropic_api_key)}
+            "ai": bool(base.ai_api_key), "ai_provider": base.ai_provider}
 
     @app.patch("/api/settings", dependencies=A)
     def patch_settings(p: dict):

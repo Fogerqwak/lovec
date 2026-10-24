@@ -318,7 +318,7 @@ def test_ai_summary_endpoint(tmp_path, monkeypatch):
     monkeypatch.setattr(_httpx, "post", fake_post)
 
     s = Settings(db_path=str(tmp_path / "ai.db"), telegram_token=TOKEN, allowed_users=[42],
-                 anthropic_api_key="sk-test", searches=[])
+                 ai_provider="anthropic", ai_api_key="sk-test", searches=[])
     c = TestClient(create_app(s, background=False))
     db = DB(s.db_path)
     lid = db.save(classify(L("Prenajmem garsónku", "Prenajmem svoju garsónku v Petržalke za 650 €.")), "s", "prenajom")
@@ -339,4 +339,37 @@ def test_ai_without_key(tmp_path):
     c = TestClient(create_app(s, background=False))
     lid = DB(s.db_path).save(classify(L("Predám", "Predám byt.")), "s", "predaj")
     r = c.post(f"/api/leads/{lid}/ai", headers={"X-Tg-Init-Data": _init()})
-    assert r.status_code == 400 and "ANTHROPIC_API_KEY" in r.json()["detail"]
+    assert r.status_code == 400 and "GROQ_API_KEY" in r.json()["detail"]
+
+
+
+def test_ai_groq_openai_compatible(monkeypatch):
+    import httpx as _httpx
+    from lovec.ai import summarize
+    seen = []
+
+    class R:
+        def __init__(self, code, body):
+            self.status_code, self._b, self.text = code, body, _json.dumps(body)
+        def json(self):
+            return self._b
+
+    def fake_post(url, **kw):
+        seen.append((url, kw))
+        if "response_format" in kw["json"]:
+            return R(400, {"error": {"message": "response_format json_object not supported"}})
+        return R(200, {"choices": [{"message": {"content": '{"tldr": "ok", "seller": {"verdict": "unclear"}}'}}]})
+    monkeypatch.setattr(_httpx, "post", fake_post)
+    out = summarize({"title": "x", "description": "y"}, "groq", "gsk_test")
+    assert out["tldr"] == "ok" and out["_model"] == "openai/gpt-oss-120b"
+    assert seen[0][0] == "https://api.groq.com/openai/v1/chat/completions"
+    assert seen[0][1]["headers"]["Authorization"] == "Bearer gsk_test"
+    assert len(seen) == 2  # повторив без JSON-режиму
+
+
+def test_ai_provider_from_env(monkeypatch, tmp_path):
+    from lovec.settings import load
+    cfg = tmp_path / "c.yaml"; cfg.write_text("searches: []\n")
+    monkeypatch.setenv("GEMINI_API_KEY", "g-key")
+    s = load(str(cfg))
+    assert (s.ai_provider, s.ai_api_key) == ("gemini", "g-key")

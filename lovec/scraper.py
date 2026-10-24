@@ -56,6 +56,7 @@ def run_once(s: Settings, db: DB, notify: Notifier | None = None) -> dict:
     summary = {"lists_ok": 0, "lists_failed": [], "new": 0, "private": 0, "suspicious": 0, "agency": 0,
                "notified": 0, "silent": silent}
     budget = s.max_new_per_run if not silent else 10_000
+    ai_blocked = False
 
     try:
         # Оренда першою: там швидкість вирішує, і бюджет нових деталок іде спершу на неї
@@ -123,12 +124,14 @@ def run_once(s: Settings, db: DB, notify: Notifier | None = None) -> dict:
 
                 want = (l.category == "private" and s.notify_private) or \
                        (l.category == "suspicious" and s.notify_suspicious)
-                if l.category != "agency" and s.ai_auto and s.anthropic_api_key:
+                if l.category != "agency" and s.ai_auto and s.ai_api_key and not ai_blocked:
                     try:
                         from .ai import summarize
-                        db.set_ai(lid, summarize(db.get(lid), s.anthropic_api_key, s.ai_model))
+                        db.set_ai(lid, summarize(db.get(lid), s.ai_provider, s.ai_api_key, s.ai_model, s.ai_base_url))
                     except Exception as e:  # noqa: BLE001 — AI не має ламати пуш
                         log.warning("AI summary %s: %s", lid, e)
+                        if "ліміт" in str(e):
+                            ai_blocked = True  # безкоштовний ліміт вичерпано — решта цього проходу без AI
                 if want and notify:
                     try:
                         notify(lid, db.get(lid))

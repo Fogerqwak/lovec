@@ -82,8 +82,8 @@ docker compose logs -f lovec
 меблі, тварини), вердикт «власник/ріелтор» з поясненням, ризики, як зайти до власника,
 перша фраза дзвінка словацькою і що спитати. Працює через Claude API:
 
-1. console.anthropic.com → API Keys → створи ключ, поповни баланс на $5
-2. у `.env`: `ANTHROPIC_API_KEY=sk-ant-…` (модель — `AI_MODEL`, за замовчуванням `claude-haiku-5-5`)
+1. Безкоштовно: console.groq.com → API Keys → створи ключ (картка не потрібна). Або aistudio.google.com → Get API key. Платно й найякісніше: console.anthropic.com
+2. у `.env` один із: `GROQ_API_KEY=gsk_…`, `GEMINI_API_KEY=…`, `ANTHROPIC_API_KEY=sk-ant-…` (модель — `AI_MODEL`, необов'язково)
 3. `docker compose up -d`
 
 Тумблер «🤖 AI-підсумок одразу» в Налаштуваннях робить підсумок для кожного нового 🟢/🟡 —

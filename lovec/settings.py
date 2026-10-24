@@ -37,8 +37,10 @@ class Settings:
     dashboard_password: str = ""
     public_url: str = ""  # напр. https://lovec.example.com — для посилань у Telegram
     allowed_users: list[int] = field(default_factory=list)  # Telegram user id з доступом до Mini App
-    anthropic_api_key: str = ""
-    ai_model: str = "claude-haiku-5-5"
+    ai_provider: str = ""   # groq | gemini | anthropic
+    ai_api_key: str = ""
+    ai_model: str = ""      # порожньо = модель за замовчуванням провайдера
+    ai_base_url: str = ""
     ai_auto: bool = False  # підсумок для кожного нового 🟢/🟡 одразу
     paused: bool = False
 
@@ -71,13 +73,20 @@ def load(config_path: str | None = None) -> Settings:
         dashboard_user=os.getenv("DASHBOARD_USER", "admin"),
         dashboard_password=os.getenv("DASHBOARD_PASSWORD", ""),
         public_url=os.getenv("PUBLIC_URL", "").rstrip("/"),
-        anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", ""),
-        ai_model=os.getenv("AI_MODEL", "claude-haiku-5-5"),
+        ai_model=os.getenv("AI_MODEL", ""),
+        ai_base_url=os.getenv("AI_BASE_URL", ""),
         allowed_users=[int(x) for x in os.getenv("TELEGRAM_ALLOWED_USERS", "").replace(" ", "").split(",") if x],
     )
     # Особистий чат з ботом: chat_id == user_id, тож власник має доступ без додаткових налаштувань
     if not s.allowed_users and s.telegram_chat_id.isdigit():
         s.allowed_users = [int(s.telegram_chat_id)]
+    # AI: перший знайдений ключ визначає провайдера (або явно AI_PROVIDER + AI_API_KEY)
+    for prov, env in (("groq", "GROQ_API_KEY"), ("gemini", "GEMINI_API_KEY"), ("anthropic", "ANTHROPIC_API_KEY")):
+        if os.getenv(env):
+            s.ai_provider, s.ai_api_key = prov, os.getenv(env, "")
+            break
+    if os.getenv("AI_API_KEY"):
+        s.ai_provider, s.ai_api_key = os.getenv("AI_PROVIDER", "groq"), os.getenv("AI_API_KEY", "")
     if s.interval_minutes < 3:
         s.interval_minutes = 3
     return s

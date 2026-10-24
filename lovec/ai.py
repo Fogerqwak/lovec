@@ -1,4 +1,4 @@
-"""AI-підсумок оголошення через Claude API (Messages API, без SDK — лише httpx)."""
+"""AI-підсумок оголошення. Безкоштовно — Groq або Gemini (OpenAI-сумісний API); платно — Claude."""
 from __future__ import annotations
 
 import json
@@ -8,8 +8,6 @@ import re
 import httpx
 
 log = logging.getLogger(__name__)
-
-API_URL = "https://api.anthropic.com/v1/messages"
 
 SYSTEM = """Ти — асистент ріелтора-початківця в Братиславі. Він шукає оголошення від власників
 (без агентства), дзвонить їм і пропонує свої послуги посередника: знайти орендаря/покупця.
@@ -73,27 +71,71 @@ def parse_json(text: str) -> dict:
         raise AIError(f"кривий JSON: {e}") from e
 
 
-def summarize(row: dict, api_key: str, model: str, timeout: float = 60) -> dict:
+PROVIDERS = {
+    # безкоштовні тарифи без картки: Groq (console.groq.com), Gemini (aistudio.google.com)
+    "groq": {"base": "https://api.groq.com/openai/v1", "model": "openai/gpt-oss-120b"},
+    "gemini": {"base": "https://generativelanguage.googleapis.com/v1beta/openai", "model": "gemini-3.8-flash"},
+    "anthropic": {"base": "https://api.anthropic.com/v1", "model": "claude-haiku-5-5"},
+}
+
+
+def summarize(row: dict, provider: str, api_key: str, model: str = "", base_url: str = "",
+              timeout: float = 90) -> dict:
     if not api_key:
-        raise AIError("Нема ANTHROPIC_API_KEY у .env")
-    r = httpx.post(API_URL, timeout=timeout, headers={
-        "x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json",
-    }, json={
-        "model": model, "max_tokens": 1200, "system": SYSTEM,
-        "messages": [{"role": "user", "content": build_prompt(row)}],
-    })
-    if r.status_code != 200:
-        try:
-            msg = r.json().get("error", {}).get("message", r.text[:200])
-        except ValueError:
-            msg = r.text[:200]
-        raise AIError(f"Claude API {r.status_code}: {msg}")
-    data = r.json()
-    text = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
+        raise AIError("Нема ключа AI у .env (GROQ_API_KEY / GEMINI_API_KEY / ANTHROPIC_API_KEY)")
+    preset = PROVIDERS.get(provider, PROVIDERS["groq"])
+    model = model or preset["model"]
+    base = (base_url or preset["base"]).rstrip("/")
+    if provider == "anthropic":
+        text, usage = _anthropic(row, api_key, model, base, timeout)
+    else:
+        text, usage = _openai_compat(row, api_key, model, base, timeout)
     out = parse_json(text)
     out["_model"] = model
-    out["_usage"] = data.get("usage", {})
+    out["_usage"] = usage
     return out
+
+
+def _err(r: httpx.Response, who: str) -> AIError:
+    try:
+        j = r.json()
+        msg = (j.get("error") or {}).get("message") if isinstance(j.get("error"), dict) else j.get("error")
+        msg = msg or r.text[:200]
+    except ValueError:
+        msg = r.text[:200]
+    if r.status_code == 429:
+        return AIError(f"{who}: ліміт безкоштовного тарифу, спробуй за хвилину ({msg})")
+    return AIError(f"{who} {r.status_code}: {msg}")
+
+
+def _anthropic(row, key, model, base, timeout):
+    r = httpx.post(f"{base}/messages", timeout=timeout, headers={
+        "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json",
+    }, json={"model": model, "max_tokens": 1200, "system": SYSTEM,
+             "messages": [{"role": "user", "content": build_prompt(row)}]})
+    if r.status_code != 200:
+        raise _err(r, "Claude API")
+    data = r.json()
+    return "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text"), data.get("usage", {})
+
+
+def _openai_compat(row, key, model, base, timeout):
+    body = {"model": model, "max_tokens": 3000, "temperature": 0.3,
+            "messages": [{"role": "system", "content": SYSTEM}, {"role": "user", "content": build_prompt(row)}],
+            "response_format": {"type": "json_object"}}
+    headers = {"Authorization": f"Bearer {key}", "content-type": "application/json"}
+    r = httpx.post(f"{base}/chat/completions", timeout=timeout, headers=headers, json=body)
+    if r.status_code == 400 and "response_format" in r.text:
+        body.pop("response_format")  # не всі моделі вміють JSON-режим — тоді просто просимо в промпті
+        r = httpx.post(f"{base}/chat/completions", timeout=timeout, headers=headers, json=body)
+    if r.status_code != 200:
+        raise _err(r, "AI API")
+    data = r.json()
+    try:
+        text = data["choices"][0]["message"]["content"] or ""
+    except (KeyError, IndexError, TypeError):
+        raise AIError("AI API: порожня відповідь")
+    return text, data.get("usage", {})
 
 
 def one_liner(ai: dict) -> str:
