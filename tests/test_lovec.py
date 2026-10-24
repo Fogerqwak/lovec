@@ -487,3 +487,27 @@ def test_delete_lead(tmp_path):
     assert c.delete(f"/api/leads/{lid}", headers=h).status_code == 404
     from lovec.telegram import keyboard
     assert any(b.get("callback_data") == f"x:ask:{lid}" for row in keyboard(lid)["inline_keyboard"] for b in row)
+
+
+def test_okres_filter(tmp_path):
+    from lovec.districts import detect_okres
+    assert detect_okres("Ružinov") == "Bratislava II"
+    assert detect_okres("Devínska Nová Ves") == "Bratislava IV"
+    assert detect_okres(None, "Račianska, okres Bratislava III") == "Bratislava III"
+    assert detect_okres(None, "Bratislava 851 01") == "Bratislava V"
+    assert detect_okres("Mimo BA", "Senec") == "Mimo BA"
+    assert detect_okres(None, "Bratislava") is None
+
+    s = Settings(db_path=str(tmp_path / "o.db"), telegram_token=TOKEN, allowed_users=[42], searches=[])
+    c = TestClient(create_app(s, background=False))
+    db = DB(s.db_path)
+    for i, (d, o) in enumerate([("Ružinov", "Bratislava II"), ("Vrakuňa", "Bratislava II"), ("Petržalka", "Bratislava V"), (None, None)]):
+        l = classify(Listing("bazos", str(i), f"u{i}", title="Prenajmem byt", description="Prenajmem byt."))
+        l.district, l.okres = d, o
+        db.save(l, "s", "prenajom")
+    h = {"X-Tg-Init-Data": _init()}
+    got = c.get("/api/leads?okresy=Bratislava II", headers=h).json()
+    assert sorted(r["district"] for r in got) == ["Ružinov", "Vrakuňa"]     # шильдик району лишається
+    assert len(c.get("/api/leads?okresy=Bratislava V,?", headers=h).json()) == 2
+    o = c.get("/api/okresy?deal=prenajom", headers=h).json()
+    assert o["counts"]["Bratislava II"] == 2 and o["all"][0]["districts"] == ["Staré Mesto"]

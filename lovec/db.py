@@ -85,11 +85,22 @@ class DB:
                 c.execute("ALTER TABLE listings ADD COLUMN ai TEXT")
             if "district" not in cols:
                 c.execute("ALTER TABLE listings ADD COLUMN district TEXT")
-            for col, typ in (("prop_type", "TEXT"), ("rooms", "REAL"), ("area_m2", "REAL")):
+            for col, typ in (("prop_type", "TEXT"), ("rooms", "REAL"), ("area_m2", "REAL"), ("okres", "TEXT")):
                 if col not in cols:
                     c.execute(f"ALTER TABLE listings ADD COLUMN {col} {typ}")
         self._backfill_districts()
         self._backfill_props()
+        self._backfill_okres()
+
+    def _backfill_okres(self) -> None:
+        if self.get_kv("okres_v1") == "1":
+            return
+        from .districts import detect_okres
+        with self.conn() as c:
+            for r in c.execute("SELECT id, district, location FROM listings").fetchall():
+                c.execute("UPDATE listings SET okres=? WHERE id=?",
+                          (detect_okres(r["district"], r["location"] or ""), r["id"]))
+        self.set_kv("okres_v1", "1")
 
     def _backfill_props(self) -> None:
         if self.get_kv("props_v1") == "1":
@@ -247,13 +258,13 @@ class DB:
             c.execute(
                 """INSERT INTO listings(key,source,ext_id,url,search_name,deal,title,price_eur,price_text,
                        location,description,seller_name,phones,seller_listing_count,score,category,reasons,
-                       wants_no_rk,first_seen,updated_at,district,prop_type,rooms,area_m2)
-                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                       wants_no_rk,first_seen,updated_at,district,prop_type,rooms,area_m2,okres)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                    ON CONFLICT(key) DO NOTHING""",
                 (l.key, l.source, l.ext_id, l.url, search_name, deal, l.title, l.price_eur, l.price_text,
                  l.location, l.description[:5000], l.seller_name, ",".join(l.phones), l.seller_listing_count,
                  l.score, l.category, json.dumps(l.reasons, ensure_ascii=False), int(l.wants_no_rk), now(), now(),
-                 l.district, l.prop_type, l.rooms, l.area_m2),
+                 l.district, l.prop_type, l.rooms, l.area_m2, l.okres),
             )
             row = c.execute("SELECT id FROM listings WHERE key=?", (l.key,)).fetchone()
             lid = row["id"]
@@ -305,9 +316,19 @@ class DB:
             return dict(r) if r else None
 
     def leads(self, category: str | None = None, status: str | None = None, deal: str | None = None,
-              q: str | None = None, limit: int = 300, districts: list[str] | None = None) -> list[dict]:
+              q: str | None = None, limit: int = 300, districts: list[str] | None = None,
+              okresy: list[str] | None = None) -> list[dict]:
         sql = "SELECT * FROM listings WHERE 1=1"
         args: list = []
+        if okresy:
+            named = [o for o in okresy if o != "?"]
+            parts = []
+            if named:
+                parts.append(f"okres IN ({','.join('?' * len(named))})")
+                args += named
+            if "?" in okresy:
+                parts.append("okres IS NULL")
+            sql += " AND (" + " OR ".join(parts) + ")"
         if districts:
             named = [d for d in districts if d != "?"]
             parts = []
@@ -335,15 +356,16 @@ class DB:
         with self.conn() as c:
             return [dict(r) for r in c.execute(sql, args)]
 
-    def district_counts(self, category: str = "private,suspicious", deal: str = "") -> dict:
+    def district_counts(self, category: str = "private,suspicious", deal: str = "", col: str = "district") -> dict:
+        assert col in ("district", "okres")
         cats = category.split(",")
-        sql = f"SELECT district, COUNT(*) n FROM listings WHERE category IN ({','.join('?' * len(cats))})"
+        sql = f"SELECT {col} AS district, COUNT(*) n FROM listings WHERE category IN ({','.join('?' * len(cats))})"
         args = list(cats)
         if deal:
             sql += " AND deal=?"
             args.append(deal)
         with self.conn() as c:
-            return {(r["district"] or "?"): r["n"] for r in c.execute(sql + " GROUP BY district", args)}
+            return {(r["district"] or "?"): r["n"] for r in c.execute(sql + f" GROUP BY {col}", args)}
 
     def stats(self) -> dict:
         with self.conn() as c:

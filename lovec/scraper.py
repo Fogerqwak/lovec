@@ -120,6 +120,8 @@ def run_once(s: Settings, db: DB, notify: Notifier | None = None) -> dict:
                 from . import props
                 from .districts import detect
                 l.district = detect(l.location, l.title, l.description)
+                from .districts import detect_okres
+                l.okres = detect_okres(l.district, l.location)
                 props.enrich(l)
                 lid = db.save(l, search.name, search.deal)
                 db.mark_seen(url)

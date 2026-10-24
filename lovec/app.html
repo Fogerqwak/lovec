@@ -297,7 +297,7 @@ $("#tabs").onclick = e => { const t = TABS.find(x => x.id === e.target.closest("
 
 async function loadLeads() {
   const p = new URLSearchParams({ category: tab.cat, status: tab.status || "", deal: $("#deal").value, q: $("#q").value,
-    districts: [...selD].join(","), ...filterParams(F) });
+    okresy: [...selO].join(","), ...filterParams(F) });
   loadDistricts();
   try { leads = await api("/api/leads?" + p); } catch (e) { $("#list").innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
   $("#list").innerHTML = leads.length ? leads.map(r => `
@@ -371,25 +371,28 @@ $("#f-apply").onclick = () => {
 };
 $("#f-reset").onclick = () => { F = {}; LS.set("lovec.filter", F); fillFilterForm(); loadLeads(); };
 
-// ---------- райони ----------
-let selD = new Set(LS.get("lovec.districts", []));
-let DIST_ALL = [];
+// ---------- округи (фільтр списку) ----------
+// Фільтруємо по okres (Bratislava I–V); на картках лишається точний район 📍
+let selO = new Set(LS.get("lovec.okresy", []));
+let DIST_ALL = [];  // райони — для налаштувань пушів
+const ROMAN = o => o.replace("Bratislava ", "");
 async function loadDistricts() {
   let d;
-  try { d = await api(`/api/districts?category=${encodeURIComponent(tab.cat)}&deal=${$("#deal").value}`); } catch { return; }
-  DIST_ALL = d.all;
-  // показуємо райони, де є ліди (+ вибрані), за кількістю
-  const names = [...new Set([...d.all.filter(x => d.counts[x]), ...selD].filter(x => x !== "?"))]
-    .sort((a, b) => (d.counts[b] || 0) - (d.counts[a] || 0));
-  if (d.counts["?"]) names.push("?");
-  $("#dist").innerHTML = (selD.size ? `<button class="chip clear" data-d="">✕ Всі райони</button>` : "")
-    + names.map(n => `<button class="chip ${selD.has(n) ? "on" : ""}" data-d="${esc(n)}">${n === "?" ? "Невідомо" : esc(n)}<span class="n">${d.counts[n] || 0}</span></button>`).join("");
+  try { d = await api(`/api/okresy?category=${encodeURIComponent(tab.cat)}&deal=${$("#deal").value}`); } catch { return; }
+  const items = d.all.filter(o => o.id !== "Mimo BA" || d.counts[o.id] || selO.has(o.id));
+  if (d.counts["?"] || selO.has("?")) items.push({ id: "?", districts: [] });
+  $("#dist").innerHTML = (selO.size ? `<button class="chip clear" data-d="">✕ Вся BA</button>` : "")
+    + items.map(o => {
+      const label = o.id === "?" ? "Невідомо" : o.id === "Mimo BA" ? "Mimo BA"
+        : `BA ${ROMAN(o.id)} · ${o.districts[0]}${o.districts.length > 1 ? "…" : ""}`;
+      return `<button class="chip ${selO.has(o.id) ? "on" : ""}" data-d="${esc(o.id)}" title="${esc(o.districts.join(", "))}">${esc(label)}<span class="n">${d.counts[o.id] || 0}</span></button>`;
+    }).join("");
 }
 $("#dist").onclick = e => {
   const b = e.target.closest("button"); if (!b) return; haptic();
   const n = b.dataset.d;
-  if (!n) selD.clear(); else selD.has(n) ? selD.delete(n) : selD.add(n);
-  LS.set("lovec.districts", [...selD]); loadLeads();
+  if (!n) selO.clear(); else selO.has(n) ? selO.delete(n) : selO.add(n);
+  LS.set("lovec.okresy", [...selO]); loadLeads();
 };
 
 // ---------- lead detail ----------

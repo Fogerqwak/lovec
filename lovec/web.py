@@ -144,11 +144,12 @@ def create_app(base: Settings | None = None, background: bool = True) -> FastAPI
     # ---------- ліди ----------
     @app.get("/api/leads", dependencies=A)
     def leads(category: str = "private,suspicious", status: str = "", deal: str = "", q: str = "",
-              districts: str = "", types: str = "", rooms: str = "", area_min: float | None = None,
+              districts: str = "", okresy: str = "", types: str = "", rooms: str = "", area_min: float | None = None,
               area_max: float | None = None, price_min: float | None = None, price_max: float | None = None):
         from .props import passes
         rows = db.leads(category or None, None, deal or None, q or None,
-                        districts=[d for d in districts.split(",") if d] or None, limit=1000)
+                        districts=[d for d in districts.split(",") if d] or None,
+                        okresy=[o for o in okresy.split(",") if o] or None, limit=1000)
         f = {"types": [x for x in types.split(",") if x], "rooms": [x for x in rooms.split(",") if x],
              "area_min": area_min, "area_max": area_max, "price_min": price_min, "price_max": price_max}
         rows = [r for r in rows if passes(r, f)][:300]
@@ -210,6 +211,12 @@ def create_app(base: Settings | None = None, background: bool = True) -> FastAPI
         from .districts import DISTRICTS, OUTSIDE
         counts = db.district_counts(category, deal)
         return {"all": DISTRICTS + [OUTSIDE], "counts": counts}
+
+    @app.get("/api/okresy", dependencies=A)
+    def okresy(category: str = "private,suspicious", deal: str = ""):
+        from .districts import OKRESY, OUTSIDE
+        return {"all": [{"id": o, "districts": ds} for o, ds in OKRESY.items()] + [{"id": OUTSIDE, "districts": []}],
+                "counts": db.district_counts(category, deal, col="okres")}
 
     @app.get("/api/stats", dependencies=A)
     def stats():

@@ -109,3 +109,33 @@ def detect(location: str = "", title: str = "", description: str = "") -> str | 
     if any(re.search(rf"\b{t}", head + " " + desc[:300]) for t in OUTSIDE_TOWNS) and "bratislav" not in head:
         return OUTSIDE
     return None
+
+
+# ---------- округи (okres) ----------
+OKRESY = {
+    "Bratislava I": ["Staré Mesto"],
+    "Bratislava II": ["Ružinov", "Vrakuňa", "Podunajské Biskupice"],
+    "Bratislava III": ["Nové Mesto", "Rača", "Vajnory"],
+    "Bratislava IV": ["Karlova Ves", "Dúbravka", "Lamač", "Devín", "Devínska Nová Ves", "Záhorská Bystrica"],
+    "Bratislava V": ["Petržalka", "Jarovce", "Rusovce", "Čunovo"],
+}
+OKRES_OF = {d: o for o, ds in OKRESY.items() for d in ds}
+OKRES_TEXT = re.compile(r"okres\s+bratislava\s+(v|iv|iii|ii|i)\b")
+PSC3_OKRES = {"811": "Bratislava I", "821": "Bratislava II", "831": "Bratislava III",
+              "841": "Bratislava IV", "851": "Bratislava V"}
+
+
+def detect_okres(district: str | None, location: str = "") -> str | None:
+    """Округ: з району; якщо район невідомий — з «okres Bratislava III» або PSČ."""
+    if district == OUTSIDE:
+        return OUTSIDE
+    if district in OKRES_OF:
+        return OKRES_OF[district]
+    loc = fold(location)
+    m = OKRES_TEXT.search(loc)
+    if m:
+        return f"Bratislava {m.group(1).upper()}"
+    m = PSC_RE.search(location or "")
+    if m and "bratislav" in loc:
+        return PSC3_OKRES.get(m.group(1))
+    return None
