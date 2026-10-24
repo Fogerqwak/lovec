@@ -19,11 +19,12 @@ def test_agency_herrys():
     assert l.category == "agency", l.reasons
 
 
-def test_agency_frank_zicher_without_word_rk():
+def test_frank_zicher_without_name_is_yellow_not_hidden():
+    # ім'я фірми лише в тексті, без «RK ponúka» — не 100%, тож 🟡, але не ховаємо
     l = classify(L("Predávame 3-izbový byt pri Hviezdoslavovom námestí",
                    "Ponúkame na predaj 3-izbový byt. Vďaka vzdušnému interiéru... Viac info v RK. "
                    "© Text a fotografie sú autorským dielom. FRANK ZICHER s.r.o."))
-    assert l.category == "agency", l.reasons
+    assert l.category == "suspicious", l.reasons
 
 
 def test_private_owner_no_rk():
@@ -37,7 +38,6 @@ def test_private_rent_no_commission():
     l = classify(L("GARSONKA V NOVOSTAVBE- NETREBA PLATIT PROVIZIU PRE REALITKU",
                    "PRENAJMEM KOMPLET ZARIADENÚ GARSÓNKU V NOVOSTAVBE NA SLNEČNICIACH."))
     assert l.category == "private", l.reasons
-    assert l.wants_no_rk
 
 
 def test_developer_warning_to_agencies_not_counted_as_agency():
@@ -53,9 +53,10 @@ def test_fake_private_flag_but_agency_text():
     assert l.category != "private", l.reasons
 
 
-def test_phone_reuse_makes_agency():
+def test_phone_reuse_is_yellow_not_hidden():
+    # власник може здавати 3 квартири — це лід, не ріелтор
     l = classify(L("Predám byt", "Predám byt v Ružinove."), phone_reuse=3)
-    assert l.category == "agency"
+    assert l.category == "suspicious"
 
 
 def test_blacklist():
@@ -131,6 +132,8 @@ def test_bazos_detail():
     assert l.phones == ["421915222333"]          # телефон сайту з header не підхопили
     assert l.seller_name == "Ján"
     assert "idmeno=123" in l.extra["user_url"]
+    assert l.extra["seller_key"] == "bz:1"
+    assert "Ružinov" in l.location
     assert classify(l).category == "private"
 
 
@@ -221,3 +224,75 @@ def test_source_from_url():
     assert source_from_url("https://reality.bazos.sk/predam/byt/") == "bazos"
     assert source_from_url("https://www.nehnutelnosti.sk/vysledky/byty") == "nehnutelnosti"
     assert source_from_url("https://evilnehnutelnosti.sk/") is None
+
+
+
+# ---------- нова логіка: ховаємо лише 100% ----------
+
+def test_hard_seller_names():
+    from lovec.classify import is_company_name
+    for n in ["Realitná kancelária REALADR s.r.o.", "Direct Real, spol. s r.o.", "Mgr. Ján Badinka / Maklér",
+              "HOME PROPERTY", "XY Reality", "Byty Invest a.s."]:
+        assert is_company_name(n), n
+    for n in ["Andrej", "Tomas Samuhel", "Nela Antalcová", "PhDr. Viktor Vlasák MBA", "Rafael", "Jana Realová"[:4]]:
+        assert not is_company_name(n), n
+
+
+def test_seller_name_hides():
+    l = classify(L("Prenájom 2i bytu", "Prenajmem byt.", seller_name="Realitná kancelária REALADR s.r.o."))
+    assert l.category == "agency" and l.reasons[0].startswith("🔴")
+
+
+def test_brand_in_title_hides():
+    l = classify(L("DIRECTREAL|Zariadený 1,5 izbový byt s balkónom", "Ponúkame na prenájom byt."))
+    assert l.category == "agency", l.reasons
+
+
+def test_rk_ponuka_hides():
+    l = classify(L("Na prenájom 2i", "Realitná kancelária HERRYS ponúka na prenájom byt."))
+    assert l.category == "agency"
+
+
+def test_bez_provizie_agency_not_private():
+    # агенти пишуть «BEZ PROVÍZIE» — це не має робити оголошення приватним
+    l = classify(L("BEZ PROVÍZIE︱2-izbový apartmán | OLIVIA Residence",
+                   "Ponúkame Vám na prenájom apartmán. Viac informácií poskytne realitná kancelária. Rezervačný poplatok 300 €."))
+    assert l.category == "suspicious", l.reasons
+    assert not l.wants_no_rk
+
+
+def test_fake_bez_rk_with_agency_signs():
+    l = classify(L("Prenájom bytu, RK nevolať", "Byt v zastúpení majiteľa. Rezervačná zmluva, provízia 1 nájom."))
+    assert l.category == "suspicious", l.reasons
+    assert any("не віримо" in r for r in l.reasons)
+
+
+def test_private_rent_bez_provizie_still_green():
+    l = classify(L("Prenajmem 2i byt Petržalka – bez provízie", "Prenajmem svoj byt, som majiteľ. Volajte."))
+    assert l.category == "private", l.reasons
+
+
+def test_nehnutelnosti_agency_link():
+    html = """<html><body><h1>Zariadený 1,5 izbový byt</h1><div>730 €/mes.</div>
+    <a href="/realitny-makler/mgr-michaela-mosna-d0de/inzeraty/b3f">Mgr. Michaela Mosná</a>
+    <a href="/realitna-kancelaria/direct-real-spol-s-ro/centrala/o-firme/92b">Direct Real, spol. s r.o.</a>
+    <p>Ponúkame na prenájom zariadený byt na Račianskej ulici, Bratislava-Nové Mesto. Pekný byt s balkónom a parkovaním.</p>
+    </body></html>"""
+    l = SOURCES["nehnutelnosti"].parse_detail(html, "x", "https://www.nehnutelnosti.sk/detail/x/y")
+    assert l.site_private_flag is False
+    assert "Michaela" in l.seller_name
+    assert l.price_eur == 730
+    assert l.location == "Bratislava-Nové Mesto"
+    assert classify(l).category == "agency"
+
+
+def test_rentals_first_and_rent_pack(tmp_path):
+    db = DB(str(tmp_path / "r.db"))
+    db.seed_searches([Search("Bazoš byty predaj", "bazos", "https://reality.bazos.sk/predam/byt/", "predaj")])
+    db.set_kv("rent_pack_v1", "")  # імітуємо старий сервер
+    db.migrate_searches()
+    rows = db.searches()
+    assert rows[0]["deal"] == "prenajom"
+    assert sum(r["deal"] == "prenajom" for r in rows) == 3
+    db.migrate_searches()
+    assert len(db.searches()) == len(rows)  # ідемпотентно

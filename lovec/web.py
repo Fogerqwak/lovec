@@ -63,6 +63,9 @@ def create_app(base: Settings | None = None, background: bool = True) -> FastAPI
     base = base or load()
     db = DB(base.db_path)
     db.seed_searches(base.searches)
+    db.migrate_searches()
+    from .db import reclassify_all
+    reclassify_all(db, base.phone_reuse_limit, base.private_max)
     state = {"running": False}
     lock = asyncio.Lock()
 

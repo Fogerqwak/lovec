@@ -1,8 +1,11 @@
-"""Приватна особа чи ріелтор? Простий прозорий скоринг.
+"""Приватна особа чи ріелтор?
 
-score > 0 тягне в бік агентства, < 0 — у бік приватної особи.
-Кожне правило пише причину в reasons, щоб у Telegram/дашборді було видно ЧОМУ.
-Ріелтори часто ставлять галочку "приватна особа", тому одній галочці не віримо.
+Два рівні:
+  1) ЖОРСТКІ правила — лише там, де ріелтор 100%: ім'я продавця з real/s.r.o./maklér,
+     профіль агентства на сайті, «Realitná kancelária X ponúka», телефон з чорного списку.
+     Тільки вони ховають оголошення (category = agency).
+  2) М'які сигнали (текст, «bez provízie», повтор телефону…) — нічого не ховають,
+     лише вирішують 🟢 чи 🟡 і пишуть причину, щоб ти бачив, що насторожило.
 """
 from __future__ import annotations
 
@@ -18,50 +21,79 @@ def fold(text: str) -> str:
     return "".join(c for c in t if not unicodedata.combining(c)).lower()
 
 
-# Фрази "ріелторам не дзвонити" — це ПРИВАТНИЙ продавець (але дзвонити треба делікатно)
-NO_RK = [
-    r"\bbez (rk|realit\w*|provizi\w*|sprostredkovatel\w*)\b",
-    r"\bnie (som )?(rk|realitk\w*|realitna kancelaria)\b",
-    r"\b(rk|realitk\w*|realitn\w* kancelari\w*|makler\w*)\b[^.!\n]{0,40}\b(nevol\w*|nekontakt\w*|neotravuj\w*|neprosim|nepiste|nepisat|prosim nie|vyhrad\w*|vylucne)",
-    r"\b(nevolajte|nepiste|nekontaktujte)\b[^.!\n]{0,20}\b(rk|realitk\w*|realitn\w*)",
-    r"\bnetreba platit proviziu\b",
-    r"\bnie je potrebne platit\w* proviziu\b",
+# ---------- ЖОРСТКІ: ім'я продавця/бренд ----------
+# "real" ловить Realadr, DirectReal, RealityPro, Real Estate…; виключаємо випадкові слова.
+HARD_NAME = re.compile(
+    r"s\.? ?r\.? ?o\b|\bspol\b|\ba\. ?s\.|\bk\. ?s\.|\bv\. ?o\. ?s\."
+    r"|real(?!iz|n[ey] (cas|zivot))|makler|property|properties|estate|invest|\bgroup\b|consulting"
+    r"|development|developer|agentur|agency|\brk\b",
+    re.I,
+)
+NOT_NAME = re.compile(r"israel|rafael", re.I)
+
+# Самоідентифікація в тексті: так пише лише агентство
+HARD_TEXT = [
+    (r"\b(realitn\w* kancelari\w*|rk|realitka)\b[^.!\n]{0,40}\b(ponuka|ponukame|vam ponuka|ponuka vam|ponuka na)\b",
+     "«Realitná kancelária … ponúka»"),
+    (r"(©|\(c\)|autorskym dielom)[^.\n]{0,80}realitn\w* kancelari", "© фото/тексту агентства"),
+    (r"\bvratane\b[^.\n]{0,30}\bproviz\w*", "«cena vrátane provízie»"),
+    (r"\bproviz\w* (pre |pre nasu )?(realitn\w* kancelari\w*|rk)\b(?![^.\n]{0,20}(netreba|nie je|neplat|ziadn|\b0\b))", "«provízia pre RK»"),
+]
+
+# ---------- М'ЯКІ ----------
+# Звернення до ріелторів — найчастіше приватник. Але так пишуть і хитрі агенти,
+# тому бонус дається лише якщо в тексті нема жодної ознаки агентства.
+ADDRESSED_TO_RK = [
+    r"\bnie (som|sme) (rk|realitk\w*|realitna kancelaria|makler\w*)\b",
+    r"\b(rk|realitk\w*|realitn\w* kancelari\w*|makler\w*)\b[^.!\n]{0,40}\b(nevol\w*|nekontakt\w*|neotravuj\w*|nepiste|nepisat|prosim nie|vyhrad\w*|vylucne)",
+    r"\b(nevolajte|nepiste|nekontaktujte)\b[^.!\n]{0,20}\b(rk|realitk\w*|realitn\w*|makler\w*)",
+    r"\bbez (rk|realitk\w*|realitnej kancelarie|sprostredkovatel\w*|maklera)\b(?! provizi)",
+]
+# «Без провізії» — нейтрально: агентства так пишуть для оренди (платить власник).
+NO_COMMISSION = [
+    r"\bbez (rk |realitnej |realitk\w* )?provizi\w*",
+    r"\b(netreba|nie je potrebne|nemusite|neplatite)\w* (platit\w* )?proviz\w*[^.!\n]{0,30}",
+    r"\b0 ?% provizi\w*",
 ]
 
 PRIVATE = [
     (r"\b(priamo )?od majitel\w*\b", "«od majiteľa»"),
-    (r"\bsukromn\w* (osoba|inzerent|predaj)\b", "«súkromná osoba» в тексті"),
-    (r"\b(predam|prenajmem|prenajmeme|predame)\b", "1-ша особа: predám/prenajmem"),
-    (r"\b(ponukam|ponukame) (na )?(predaj|prenajom)\b(?![^.]{0,40}(kancelar|realit|s\.r\.o))", "«ponúkam na predaj» без фірми"),
-    (r"\b(nas|moj|svoj) (byt|dom|rodinny dom)\b", "«náš/môj byt»"),
-    (r"\b(stahujeme sa|stahovanie|odchod do zahranicia|dedicstvo|zdedeny)\b", "життєва причина продажу"),
+    (r"\b(som|sme) majitel\w*\b", "«som majiteľ»"),
+    (r"\bsukromn\w* (osoba|inzerent|predaj|prenajom)\b", "«súkromná osoba»"),
+    (r"\b(predam|prenajmem|prenajmeme|predame|prenajimam)\b", "1-ша особа: predám/prenajmem"),
+    (r"\b(nas|moj|svoj|nasu|moju) (byt|dom|garsonku|garsonka|rodinny dom)\b", "«náš/môj byt»"),
+    (r"\b(stahujeme sa|stahovanie|odchod do zahranicia|dedicstvo|zdedeny)\b", "життєва причина"),
 ]
 
-AGENCY = [
-    (r"\brealitn\w* kancelari\w*\b(?! (nevol|nekontakt|prosim nie))", 3, "«realitná kancelária»"),
-    (r"\b(rk|realitka) (ponuka|ponukame|vam ponuka)\b", 3, "«RK ponúka»"),
-    (r"\b(makler\w*|realitn\w* (makler|agent|specialist|maklerka|poradc\w*))\b", 2, "маклер/агент"),
+SOFT_AGENCY = [
+    (r"\brealitn\w* kancelari\w*\b", 2, "згадка «realitná kancelária»"),
+    (r"\b(makler\w*|realitn\w* (agent|specialist|poradc\w*))\b", 2, "маклер/агент у тексті"),
     (r"\bproviz\w*\b", 2, "згадка провізії"),
-    (r"\b(vrátane|vratane) (kompletn\w* )?(realitn\w*|pravn\w*|odborn\w*) servis\w*", 3, "«vrátane realitného servisu»"),
+    (r"\b(rezervacn\w* (poplatok|zmluv\w*|zaloh\w*)|zmluv\w* o sprostredkovani)", 2, "резерваційний договір"),
+    (r"\b(vratane|vrátane) (kompletn\w* )?(realitn\w*|pravn\w*|odborn\w*) servis\w*", 2, "«vrátane realitného servisu»"),
     (r"\bexkluziv\w*\b", 1, "«exkluzívne»"),
-    (r"\bv (exkluzivnom )?zastupeni\b", 3, "«v zastúpení»"),
-    (r"(©|\(c\)) ?(text|fotografie)|autorskym dielom", 3, "© тексту/фото"),
-    (r"\bs\.? ?r\.? ?o\.?(?=\W|$)|\bspol\. s r\. ?o\.", 2, "s.r.o. в тексті"),
-    (r"\b(hypotekarn\w* (poradenstvo|servis|uver\w*) (zabezpec|vybav|pomoz))", 2, "пропонують іпотеку"),
+    (r"\bv (exkluzivnom )?zastupeni\b", 2, "«v zastúpení»"),
+    (r"(©|\(c\)) ?(text|fotografie)|autorskym dielom", 2, "© тексту/фото"),
+    (r"\bs\.? ?r\.? ?o\.?(?=\W|$)|\bspol\. s r\. ?o\.", 1, "s.r.o. в тексті"),
+    (r"\bhypotek\w*[^.\n]{0,30}(zabezpec|vybav|pomoz|sprostredk)", 1, "пропонують іпотеку"),
     (r"\b(3d (prehliadk|obhliadk)\w*|matterport|virtualn\w* prehliadk\w*)", 1, "3D-тур"),
-    (r"\bvizualizaci\w*\b", 1, "візуалізації"),
     (r"\b(radi vas|nevahajte nas) (prevedieme|kontaktovat)", 1, "«radi Vás prevedieme»"),
-    (r"\bponukame (vam )?(na predaj|na prenajom)\b[^.]{0,40}(kancelar|realit|s\.r\.o|group|reality)", 3, "фірма «ponúkame»"),
+    (r"\bponukame (vam )?(na predaj|na prenajom)\b", 1, "«ponúkame Vám»"),
 ]
 
-SELLER_AGENCY = re.compile(r"s\.? ?r\.? ?o|a\.s\.|reality|realit|real\b|group|property|invest|home|estate|makler", re.I)
-TITLE_BRAND = re.compile(r"^[A-ZÁÄČĎÉÍĽĹŇÓÔŔŠŤÚÝŽ0-9&.\s]{3,30}\s[-–|:]\s")
+TITLE_BRAND = re.compile(r"^\s*([A-ZÁÄČĎÉÍĽĹŇÓÔŔŠŤÚÝŽ0-9&.\s]{3,30}?)\s*[-–|︱:]\s*")
+
+
+def is_company_name(name: str) -> bool:
+    n = fold(name)
+    return bool(n and HARD_NAME.search(n) and not NOT_NAME.search(n))
 
 
 def classify(l: Listing, phone_reuse: int = 0, blacklisted: bool = False, *,
-             phone_reuse_limit: int = 3, private_max: int = 1, suspicious_max: int = 3) -> Listing:
+             phone_reuse_limit: int = 3, private_max: int = 1, **_ignored) -> Listing:
     score = 0
     reasons: list[str] = []
+    hard: list[str] = []
 
     def add(pts: int, why: str):
         nonlocal score
@@ -70,63 +102,81 @@ def classify(l: Listing, phone_reuse: int = 0, blacklisted: bool = False, *,
 
     text = fold(f"{l.title}. {l.description}")
 
-    # 1) "без ріелторів" — вирізаємо ці фрази, щоб слово "RK" у них не рахувалось як агентство
-    for pat in NO_RK:
+    # ===== 1. ЖОРСТКІ (100%) =====
+    if blacklisted:
+        hard.append("телефон у чорному списку (ти позначив як ріелтора)")
+    if l.site_private_flag is False:
+        hard.append("сайт: профіль агентства/маклера")
+    if l.seller_name and is_company_name(l.seller_name):
+        hard.append(f"продавець: «{l.seller_name[:40]}»")
+    m = TITLE_BRAND.match(l.title or "")
+    if m and is_company_name(m.group(1)):
+        hard.append(f"бренд у заголовку: «{m.group(1).strip()}»")
+
+    # «без провізії» вирізаємо до всіх перевірок, щоб слово «provízia» в ньому нічого не важило
+    no_commission = False
+    for pat in NO_COMMISSION:
         if re.search(pat, text):
-            l.wants_no_rk = True
+            no_commission = True
             text = re.sub(pat, " ", text)
-    if l.wants_no_rk:
-        add(-3, "просить без RK")
 
-    # 2) явна позначка сайту
-    if l.site_private_flag is True:
-        add(-2, "сайт: приватна особа")
-    elif l.site_private_flag is False:
-        add(5, "сайт: компанія/Profi")
-    if "rk_box" in l.page_markers:
-        add(3, "блок «Realitná kancelária» у контактах")
-
-    # 3) текст
-    agency_pts = 0
-    for pat, pts, why in AGENCY:
+    addressed = False
+    for pat in ADDRESSED_TO_RK:
         if re.search(pat, text):
-            agency_pts += pts
-            reasons.append(f"+{pts} {why}")
-    score += min(agency_pts, 8)
+            addressed = True
+            text = re.sub(pat, " ", text)
 
-    private_pts = 0
+    for pat, why in HARD_TEXT:
+        if re.search(pat, text):
+            hard.append(why)
+
+    # ===== 2. М'ЯКІ =====
+    soft_agency = 0
+    for pat, pts, why in SOFT_AGENCY:
+        if re.search(pat, text):
+            soft_agency += pts
+            reasons.append(f"+{pts} {why}")
+    score += min(soft_agency, 6)
+
+    if addressed:
+        l.wants_no_rk = True
+        if soft_agency == 0:
+            add(-2, "просить без ріелторів")
+        else:
+            reasons.append("0 «без RK», але є ознаки агентства — не віримо")
+    if no_commission:
+        reasons.append("0 «bez provízie» — так пишуть і агентства")
+
+    priv = 0
     for pat, why in PRIVATE:
         if re.search(pat, text):
-            private_pts += 1
+            priv += 1
             reasons.append(f"-1 {why}")
-    score -= min(private_pts, 3)
+    score -= min(priv, 3)
 
-    if TITLE_BRAND.match(l.title or "") and not re.match(r"^(predam|predaj|prenajom|prenajmem|na predaj)\b", fold(l.title)):
-        add(1, "бренд великими літерами в заголовку")
+    if l.site_private_flag is True:
+        add(-1, "сайт: приватна особа (галочку ставлять і ріелтори)")
+    if "rk_box" in l.page_markers:
+        add(3, "блок «Realitná kancelária» у контактах")
+    if m and not hard and not re.match(r"^(predam|predaj|prenajom|prenajmem|na predaj|na prenajom)\b", fold(l.title)):
+        add(1, "назва великими літерами перед заголовком")
 
-    # 4) продавець
-    if l.seller_name and SELLER_AGENCY.search(fold(l.seller_name)):
-        add(3, f"продавець: {l.seller_name[:30]}")
     if l.seller_listing_count is not None:
         if l.seller_listing_count >= 6:
-            add(4, f"у продавця {l.seller_listing_count} оголошень")
+            add(3, f"у продавця {l.seller_listing_count} оголошень")
         elif l.seller_listing_count >= 3:
             add(1, f"у продавця {l.seller_listing_count} оголошення")
 
-    # 5) телефон
-    if blacklisted:
-        add(6, "телефон у чорному списку (позначений як ріелтор)")
-    elif phone_reuse + 1 >= phone_reuse_limit:
-        add(5, f"телефон у {phone_reuse + 1} оголошеннях")
+    if phone_reuse + 1 >= phone_reuse_limit:
+        add(3, f"той самий продавець у {phone_reuse + 1} оголошеннях")
     elif phone_reuse >= 1:
-        add(1, "телефон ще в 1 оголошенні")
+        add(1, "продавець ще в 1 оголошенні")
 
     l.score = score
-    l.reasons = reasons
-    if score <= private_max:
-        l.category = "private"
-    elif score <= suspicious_max:
-        l.category = "suspicious"
-    else:
+    if hard:
         l.category = "agency"
+        l.reasons = [f"🔴 {h}" for h in hard] + reasons
+    else:
+        l.category = "private" if score <= private_max else "suspicious"
+        l.reasons = reasons
     return l

@@ -112,10 +112,30 @@ class DB:
                 c.execute("INSERT INTO searches(name,source,url,deal) VALUES(?,?,?,?)",
                           (x.name, x.source, x.url, x.deal))
         self.set_kv("searches_seeded", "1")
+        self.set_kv("rent_pack_v1", "1")  # свіжа установка: пошуки вже з config.yaml
+
+    RENT_PACK = [  # одноразово додається при оновленні (фокус на оренду)
+        ("Bazoš · domy prenájom BA", "bazos", "https://reality.bazos.sk/prenajmu/dom/?hlokalita=81101&humkreis=15", "prenajom"),
+        ("Nehnuteľnosti · domy prenájom BA", "nehnutelnosti", "https://www.nehnutelnosti.sk/vysledky/domy/bratislava/prenajom?order=NEWEST", "prenajom"),
+        ("Reality.sk · domy prenájom BA", "reality_sk", "https://www.reality.sk/domy/bratislava/prenajom/?order=created_date-newest", "prenajom"),
+    ]
+
+    def migrate_searches(self) -> None:
+        if self.get_kv("rent_pack_v1") == "1":
+            return
+        have = {r["url"] for r in self.searches()}
+        with self.conn() as c:
+            for name, src, url, deal in self.RENT_PACK:
+                if url not in have:
+                    c.execute("INSERT INTO searches(name,source,url,deal) VALUES(?,?,?,?)", (name, src, url, deal))
+            # битий шаблон TopReality з першої версії — вимикаємо, нормальний додається з Mini App
+            c.execute("UPDATE searches SET enabled=0 WHERE source='topreality' AND url LIKE '%obec=d100%'")
+        self.set_kv("rent_pack_v1", "1")
 
     def searches(self) -> list[dict]:
         with self.conn() as c:
-            return [dict(r) for r in c.execute("SELECT * FROM searches ORDER BY source, id")]
+            return [dict(r) for r in c.execute(
+                "SELECT * FROM searches ORDER BY deal='predaj', source, id")]  # оренда зверху
 
     def add_search(self, name: str, source: str, url: str, deal: str) -> int:
         with self.conn() as c:
@@ -195,7 +215,7 @@ class DB:
             )
             row = c.execute("SELECT id FROM listings WHERE key=?", (l.key,)).fetchone()
             lid = row["id"]
-            for p in l.phones:
+            for p in l.match_keys:
                 c.execute("INSERT OR IGNORE INTO listing_phones VALUES(?,?)", (lid, p))
             return lid
 
@@ -256,3 +276,28 @@ class DB:
                 "SELECT COUNT(*) n FROM listings WHERE category!='agency' AND first_seen >= date('now')").fetchone()["n"]
         return {"by_category": by_cat, "by_status": by_status, "leads_today": today,
                 "last_run": self.get_kv("last_run"), "last_run_summary": self.get_kv("last_run_summary")}
+
+
+def reclassify_all(db: DB, phone_reuse_limit: int = 3, private_max: int = 1) -> int:
+    """Одноразово після зміни правил: перерахувати збережені ліди (крім позначених тобою вручну)."""
+    from .classify import classify
+    if db.get_kv("reclass_v2") == "1":
+        return 0
+    with db.conn() as c:
+        rows = [dict(r) for r in c.execute("SELECT * FROM listings WHERE status != 'agent'")]
+    n = 0
+    for r in rows:
+        l = Listing(source=r["source"], ext_id=r["ext_id"], url=r["url"], title=r["title"] or "",
+                    description=r["description"] or "", seller_name=r["seller_name"] or "",
+                    phones=[p for p in (r["phones"] or "").split(",") if p],
+                    seller_listing_count=r["seller_listing_count"])
+        with db.conn() as c:
+            keys = [x["phone"] for x in c.execute("SELECT phone FROM listing_phones WHERE listing_id=?", (r["id"],))]
+        classify(l, db.phone_usage(keys, l.key), db.blacklisted(keys),
+                 phone_reuse_limit=phone_reuse_limit, private_max=private_max)
+        with db.conn() as c:
+            c.execute("UPDATE listings SET category=?, score=?, reasons=? WHERE id=?",
+                      (l.category, l.score, json.dumps(l.reasons, ensure_ascii=False), r["id"]))
+        n += 1
+    db.set_kv("reclass_v2", "1")
+    return n

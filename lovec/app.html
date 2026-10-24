@@ -175,7 +175,7 @@
   <div class="group" id="set-notify"></div>
   <h2>Фільтр ріелторів</h2>
   <div class="group" id="set-filter"></div>
-  <div class="muted" style="margin:8px 4px">Score ≤ «приватна» → 🟢, до «підозріла» → 🟡, вище → 🔴. Багато ріелторів у 🟡 — зменш «підозрілу».</div>
+  <div class="muted" style="margin:8px 4px">Ховаються лише 100% ріелтори: ім'я з real / s.r.o. / maklér, профіль агентства, «RK ponúka» або телефон, який ти позначив «Це ріелтор». Решта приходить 🟢 або 🟡 з поясненням.</div>
 </section>
 
 <nav>
@@ -194,7 +194,7 @@ const notifyH = (t = "success") => tg?.HapticFeedback?.notificationOccurred?.(t)
 
 const STATUSES = __STATUSES__;
 const SRC = { bazos: "Bazoš", nehnutelnosti: "Nehnuteľnosti", reality_sk: "Reality.sk", topreality: "TopReality" };
-const CAT = { private: "приватна", suspicious: "можливо приватна", agency: "ріелтор" };
+const CAT = { private: "приватна", suspicious: "можливо RK", agency: "ріелтор 100%" };
 const TABS = [
   { id: "new", label: "Нові", cat: "private,suspicious", status: "new" },
   { id: "work", label: "В роботі", cat: "private,suspicious", status: "called,no_answer,meeting,contract" },
@@ -384,9 +384,8 @@ async function loadSettings() {
     + step("interval_minutes", "Інтервал, хв", "Мінімум 3 — інакше забанять", 3, 120)
     + step("max_new_per_run", "Нових за прохід", "Скільки оголошень відкривати за раз", 5, 100);
   $("#set-notify").innerHTML = toggle("notify_private", "🟢 Приватні") + toggle("notify_suspicious", "🟡 Можливо приватні", "Сюди потрапляють і замасковані ріелтори");
-  $("#set-filter").innerHTML = step("private_max", "Поріг «приватна»", "score ≤ цього → 🟢", -5, 5)
-    + step("suspicious_max", "Поріг «підозріла»", "score ≤ цього → 🟡", -3, 8)
-    + step("phone_reuse_limit", "Повтор телефону", "У скількох оголошеннях = ріелтор", 2, 10);
+  $("#set-filter").innerHTML = step("private_max", "Поріг 🟢", "м'який score ≤ цього → 🟢, вище → 🟡", -5, 5)
+    + step("phone_reuse_limit", "Повтор продавця", "У скількох оголошеннях → 🟡", 2, 10);
   document.querySelectorAll("#s-settings input[data-k]").forEach(i => i.onchange = () => saveSetting(i.dataset.k, i.checked));
   document.querySelectorAll("#s-settings .stepper").forEach(st => st.onclick = e => {
     const b = e.target.closest("button"); if (!b) return;

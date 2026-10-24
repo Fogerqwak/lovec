@@ -89,6 +89,10 @@ class Source:
         l.seller_name = clean(ld.get("seller") or "")
 
         page_text = clean(soup.get_text(" "))
+        if l.price_eur is None and l.title:
+            i = page_text.find(l.title[:40])
+            if i >= 0:
+                l.price_eur, l.price_text = parse_price(page_text[i:i + 1500])
         l.phones = normalize_phones(l.description + " " + self._contact_zone(soup))
         l.page_markers = self._markers(page_text)
         self.enrich(soup, l, page_text)

@@ -28,6 +28,14 @@ class Listing:
     wants_no_rk: bool = False
 
     @property
+    def match_keys(self) -> list[str]:
+        """Телефони + прихований id продавця (Bazoš ховає номер, але id в сторінці є)."""
+        k = list(self.phones)
+        if self.extra.get("seller_key"):
+            k.append(self.extra["seller_key"])
+        return k
+
+    @property
     def key(self) -> str:
         return f"{self.source}:{self.ext_id}"
 

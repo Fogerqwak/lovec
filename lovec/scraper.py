@@ -58,7 +58,8 @@ def run_once(s: Settings, db: DB, notify: Notifier | None = None) -> dict:
     budget = s.max_new_per_run if not silent else 10_000
 
     try:
-        for search in s.searches:
+        # Оренда першою: там швидкість вирішує, і бюджет нових деталок іде спершу на неї
+        for search in sorted(s.searches, key=lambda x: x.deal != "prenajom"):
             src = SOURCES.get(search.source)
             if not src:
                 log.error("Невідоме джерело %s", search.source)
@@ -106,14 +107,14 @@ def run_once(s: Settings, db: DB, notify: Notifier | None = None) -> dict:
 
                 kw = dict(phone_reuse_limit=s.phone_reuse_limit, private_max=s.private_max,
                           suspicious_max=s.suspicious_max)
-                classify(l, db.phone_usage(l.phones, l.key), db.blacklisted(l.phones), **kw)
+                classify(l, db.phone_usage(l.match_keys, l.key), db.blacklisted(l.match_keys), **kw)
 
                 # Bazoš: якщо схоже на приватника — перевіримо, скільки ще оголошень у цього юзера
                 if isinstance(src, Bazos) and l.category != "agency" and l.extra.get("user_url"):
                     uhtml = fetcher.get(l.extra["user_url"])
                     if uhtml:
                         l.seller_listing_count = Bazos.count_user_listings(uhtml)
-                        classify(l, db.phone_usage(l.phones, l.key), db.blacklisted(l.phones), **kw)
+                        classify(l, db.phone_usage(l.match_keys, l.key), db.blacklisted(l.match_keys), **kw)
 
                 lid = db.save(l, search.name, search.deal)
                 db.mark_seen(url)

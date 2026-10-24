@@ -31,6 +31,7 @@ def main() -> None:
     base = load()
     db = DB(base.db_path)
     db.seed_searches(base.searches)
+    db.migrate_searches()
     s = effective(base, db)
 
     if a.cmd == "serve":

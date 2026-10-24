@@ -25,7 +25,7 @@ def fmt_phone(p: str) -> str:
 
 def render(row: dict, public_url: str = "") -> str:
     e = html.escape
-    head = {"private": "🟢 <b>Приватна особа</b>", "suspicious": "🟡 <b>Можливо приватна</b> ⚠️"}.get(
+    head = {"private": "🟢 <b>Приватна особа</b>", "suspicious": "🟡 <b>Можливо RK</b> — глянь причини"}.get(
         row["category"], "🔴 RK")
     deal = "продаж" if row.get("deal") == "predaj" else "оренда"
     lines = [f"{head} · {deal} · {SOURCE_NAMES.get(row['source'], row['source'])}",
@@ -44,7 +44,8 @@ def render(row: dict, public_url: str = "") -> str:
         lines.append(f"\n<i>{e(desc)}{'…' if len(row.get('description') or '') > 280 else ''}</i>")
     reasons = json.loads(row.get("reasons") or "[]")
     if reasons:
-        lines.append(f"\n<span class=\"tg-spoiler\">score {row['score']}: {e('; '.join(reasons[:6]))}</span>")
+        r = e("; ".join(reasons[:6]))
+        lines.append(f"\n⚠️ {r}" if row["category"] == "suspicious" else f"\n<span class=\"tg-spoiler\">score {row['score']}: {r}</span>")
     st = row.get("status", "new")
     if st != "new":
         lines.append(f"\n<b>Статус:</b> {STATUSES.get(st, st)}")

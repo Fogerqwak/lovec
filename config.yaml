@@ -7,12 +7,11 @@ request_delay_seconds: [2, 5] # випадкова пауза між запит�
 max_new_per_run: 40          # скільки нових детальних сторінок відкривати за один прохід
 first_run_silent: true       # перший прохід лише наповнює БД, без пушів (інакше прилетить 500 штук)
 
-# Пороги класифікатора (див. lovec/classify.py)
+# Фільтр (див. lovec/classify.py). Ховаються ЛИШЕ 100% ріелтори (ім'я з real/s.r.o./maklér,
+# профіль агентства, «RK ponúka», чорний список). Решта приходить як 🟢 або 🟡.
 score:
-  private_max: 1     # score <= 1  -> "private"  (пуш)
-  suspicious_max: 3  # 2..3        -> "suspicious" (пуш з позначкою ⚠️)
-                     # >= 4        -> "agency" (тихо в БД)
-  phone_reuse_limit: 3  # той самий телефон у >=3 різних оголошеннях = ріелтор
+  private_max: 1        # м'який score <= 1 -> 🟢, вище -> 🟡
+  phone_reuse_limit: 3  # той самий продавець у >=3 оголошеннях -> 🟡
 
 notify:
   private: true
@@ -33,6 +32,10 @@ searches:
     source: bazos
     url: "https://reality.bazos.sk/prenajmu/byt/?hlokalita=81101&humkreis=15"
     deal: prenajom
+  - name: "Bazoš · domy prenájom BA"
+    source: bazos
+    url: "https://reality.bazos.sk/prenajmu/dom/?hlokalita=81101&humkreis=15"
+    deal: prenajom
 
   # ---------- Nehnuteľnosti.sk ----------
   # Сортування "найновіші" — щоб нові були на першій сторінці.
@@ -48,6 +51,10 @@ searches:
     source: nehnutelnosti
     url: "https://www.nehnutelnosti.sk/vysledky/byty/bratislava/prenajom?order=NEWEST"
     deal: prenajom
+  - name: "Nehnuteľnosti · domy prenájom BA"
+    source: nehnutelnosti
+    url: "https://www.nehnutelnosti.sk/vysledky/domy/bratislava/prenajom?order=NEWEST"
+    deal: prenajom
 
   # ---------- Reality.sk ----------
   - name: "Reality.sk · byty predaj BA"
@@ -57,6 +64,10 @@ searches:
   - name: "Reality.sk · byty prenájom BA"
     source: reality_sk
     url: "https://www.reality.sk/byty/bratislava/prenajom/?order=created_date-newest"
+    deal: prenajom
+  - name: "Reality.sk · domy prenájom BA"
+    source: reality_sk
+    url: "https://www.reality.sk/domy/bratislava/prenajom/?order=created_date-newest"
     deal: prenajom
 
   # ---------- TopReality.sk ----------
