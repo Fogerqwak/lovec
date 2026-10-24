@@ -121,7 +121,13 @@ class Telegram:
                     r = await c.get(f"{self.api}/getUpdates",
                                     params={"offset": offset, "timeout": 30,
                                             "allowed_updates": json.dumps(["callback_query", "message"])})
-                    for u in r.json().get("result", []):
+                    data = r.json()
+                    if not data.get("ok"):
+                        # 401 = невірний токен, 409 = бот уже слухається деінде. Не долбимо API.
+                        log.error("Telegram getUpdates: %s %s", r.status_code, data.get("description"))
+                        await asyncio.sleep(300 if r.status_code == 401 else 30)
+                        continue
+                    for u in data.get("result", []):
                         offset = u["update_id"] + 1
                         await self._handle(c, u)
                 except (httpx.HTTPError, ValueError) as e:

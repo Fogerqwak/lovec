@@ -18,6 +18,8 @@ def main() -> None:
     load_dotenv()
     logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"),
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    # httpx на INFO пише повні URL — а в URL Telegram сидить токен бота
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     ap = argparse.ArgumentParser(prog="lovec")
     ap.add_argument("cmd", choices=["serve", "check", "run-once", "test-telegram"])
     ap.add_argument("--port", type=int, default=int(os.getenv("PORT", "8000")))
