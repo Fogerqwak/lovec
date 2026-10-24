@@ -73,7 +73,7 @@ def render(row: dict, public_url: str = "") -> str:
 
 def keyboard(lid: int, current: str = "new", app_url: str = "") -> dict:
     btns = [{"text": ("• " if k == current else "") + STATUSES[k], "callback_data": f"s:{k}:{lid}"} for k in QUICK]
-    rows = [btns[:3], btns[3:]]
+    rows = [btns[:3], btns[3:] + [{"text": "🗑", "callback_data": f"x:ask:{lid}"}]]
     if app_url:  # web_app-кнопки Telegram дозволяє лише в особистому чаті з ботом
         rows.append([{"text": "📋 Картка в Lovec", "web_app": {"url": f"{app_url}/#lead-{lid}"}}])
     return {"inline_keyboard": rows}
@@ -90,6 +90,15 @@ class Telegram:
 
     def _kb(self, lid: int, status: str = "new") -> dict:
         return keyboard(lid, status, self.app_url if self.private_chat else "")
+
+    def delete_message(self, message_id: int | None) -> None:
+        if not (self.enabled and message_id):
+            return
+        try:
+            httpx.post(f"{self.api}/deleteMessage", timeout=15,
+                       json={"chat_id": self.s.telegram_chat_id, "message_id": message_id})
+        except httpx.HTTPError as e:
+            log.warning("deleteMessage: %s", e)
 
     def setup_menu(self) -> None:
         """Кнопка «Lovec» зліва від поля вводу відкриває Mini App."""
@@ -161,9 +170,26 @@ class Telegram:
             if chat != str(self.s.telegram_chat_id):
                 return  # чужі натискання ігноруємо
             try:
-                _, status, lid = cq["data"].split(":")
+                kind, status, lid = cq["data"].split(":")
                 lid = int(lid)
             except ValueError:
+                return
+            mid = cq["message"]["message_id"]
+            if kind == "x":  # видалення в два тапи, щоб не стерти лід випадково
+                await c.post(f"{self.api}/answerCallbackQuery", json={"callback_query_id": cq["id"]})
+                if status == "ask":
+                    await c.post(f"{self.api}/editMessageReplyMarkup", json={
+                        "chat_id": chat, "message_id": mid, "reply_markup": {"inline_keyboard": [[
+                            {"text": "🗑 Так, видалити", "callback_data": f"x:yes:{lid}"},
+                            {"text": "↩️ Ні", "callback_data": f"x:no:{lid}"}]]}})
+                elif status == "yes":
+                    await asyncio.to_thread(self.db.delete_listing, lid)
+                    await c.post(f"{self.api}/deleteMessage", json={"chat_id": chat, "message_id": mid})
+                else:
+                    row = await asyncio.to_thread(self.db.get, lid)
+                    await c.post(f"{self.api}/editMessageReplyMarkup", json={
+                        "chat_id": chat, "message_id": mid,
+                        "reply_markup": self._kb(lid, (row or {}).get("status", "new"))})
                 return
             row = await asyncio.to_thread(self.db.set_status, lid, status)
             await c.post(f"{self.api}/answerCallbackQuery",

@@ -425,7 +425,16 @@ async function openLead(id) {
     ${r.description ? `<h2>Опис</h2><div class="sec desc" style="margin-top:0">${esc(r.description)}</div>` : ""}
     <h2>Чому score ${r.score}</h2>
     <div class="sec reasons" style="margin-top:0">${r.reasons.map(esc).join("<br>") || "—"}</div>
+    <button class="btn danger" style="width:100%;margin-top:14px" id="del-lead">🗑 Видалити оголошення</button>
     <div style="height:12px"></div>`;
+  $("#del-lead").onclick = () => {
+    const go = async () => {
+      try { await api(`/api/leads/${r.id}`, { method: "DELETE" }); notifyH(); toast("Видалено"); location.hash = ""; show("leads"); }
+      catch (e) { notifyH("error"); toast(e.message); }
+    };
+    inTg ? tg.showConfirm("Видалити оголошення? Воно більше не з'явиться.", ok => ok && go())
+         : (confirm("Видалити оголошення?") && go());
+  };
   $("#open-ad").onclick = () => openExternal(r.url);
   bindAI(r);
   el.querySelectorAll("[data-copy]").forEach(b => b.onclick = async () => {

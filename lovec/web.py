@@ -188,6 +188,15 @@ def create_app(base: Settings | None = None, background: bool = True) -> FastAPI
         db.set_ai(lid, ai)
         return _lead(lid)
 
+    @app.delete("/api/leads/{lid}", dependencies=A)
+    async def delete_lead(lid: int):
+        row = db.delete_listing(lid)
+        if not row:
+            raise HTTPException(404)
+        # прибрати і пуш з чату, щоб не висів
+        await asyncio.to_thread(Telegram(base, db).delete_message, row.get("tg_message_id"))
+        return {"ok": True}
+
     @app.patch("/api/leads/{lid}", dependencies=A)
     def patch_lead(lid: int, p: LeadPatch):
         if p.status and p.status not in STATUSES:

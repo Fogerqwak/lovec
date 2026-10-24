@@ -282,6 +282,19 @@ class DB:
             self.blacklist_listing_phones(lid)
         return dict(r) if r else None
 
+    def delete_listing(self, lid: int) -> dict | None:
+        """Видаляє лід. URL лишається в seen_urls — тож скрейпер його більше не підтягне."""
+        with self.conn() as c:
+            r = c.execute("SELECT * FROM listings WHERE id=?", (lid,)).fetchone()
+            if not r:
+                return None
+            c.execute("INSERT OR IGNORE INTO seen_urls(url, first_seen) VALUES(?,?)", (r["url"], now()))
+            # і по id оголошення — якщо сайт змінить slug в URL, воно однаково не повернеться
+            c.execute("INSERT OR IGNORE INTO seen_urls(url, first_seen) VALUES(?,?)", (f"deleted:{r['key']}", now()))
+            c.execute("DELETE FROM listing_phones WHERE listing_id=?", (lid,))
+            c.execute("DELETE FROM listings WHERE id=?", (lid,))
+            return dict(r)
+
     def set_ai(self, lid: int, ai: dict) -> None:
         with self.conn() as c:
             c.execute("UPDATE listings SET ai=? WHERE id=?", (json.dumps(ai, ensure_ascii=False), lid))

@@ -471,3 +471,19 @@ def test_props_filter_and_push(tmp_path):
     assert c.patch("/api/settings", headers=h, json={"notify_filter": {"types": ["byt"], "price_max": 900}}).json()["notify_filter"]["price_max"] == 900
     from lovec.telegram import render
     assert "2-кімн. 55 м²" in render(db.get(1))
+
+
+def test_delete_lead(tmp_path):
+    s = Settings(db_path=str(tmp_path / "del.db"), telegram_token=TOKEN, allowed_users=[42], searches=[])
+    c = TestClient(create_app(s, background=False))
+    db = DB(s.db_path)
+    lid = db.save(classify(Listing("bazos", "9", "https://reality.bazos.sk/inzerat/9/x.php", title="Prenajmem byt",
+                                   description="Prenajmem byt.", phones=["421900000009"])), "s", "prenajom")
+    h = {"X-Tg-Init-Data": _init()}
+    assert c.delete(f"/api/leads/{lid}", headers=h).json()["ok"]
+    assert db.get(lid) is None
+    assert db.unseen(["https://reality.bazos.sk/inzerat/9/x.php"]) == []   # більше не підтягнеться
+    assert db.phone_usage(["421900000009"]) == 0
+    assert c.delete(f"/api/leads/{lid}", headers=h).status_code == 404
+    from lovec.telegram import keyboard
+    assert any(b.get("callback_data") == f"x:ask:{lid}" for row in keyboard(lid)["inline_keyboard"] for b in row)

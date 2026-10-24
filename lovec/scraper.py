@@ -86,7 +86,7 @@ def run_once(s: Settings, db: DB, notify: Notifier | None = None) -> dict:
                 if budget <= 0:
                     break  # решта піде наступним проходом (url ще не позначений seen)
                 ext_id = by_url[url]
-                if db.exists(f"{src.name}:{ext_id}"):
+                if db.exists(f"{src.name}:{ext_id}") or not db.unseen([f"deleted:{src.name}:{ext_id}"]):
                     db.mark_seen(url)
                     continue
 
