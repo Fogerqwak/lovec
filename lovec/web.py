@@ -64,6 +64,7 @@ def create_app(base: Settings | None = None, background: bool = True) -> FastAPI
     db = DB(base.db_path)
     db.seed_searches(base.searches)
     db.migrate_searches()
+    db.migrate_rooms_pack()
     from .db import reclassify_all
     reclassify_all(db, base.phone_reuse_limit, base.private_max)
     state = {"running": False}
@@ -143,9 +144,14 @@ def create_app(base: Settings | None = None, background: bool = True) -> FastAPI
     # ---------- ліди ----------
     @app.get("/api/leads", dependencies=A)
     def leads(category: str = "private,suspicious", status: str = "", deal: str = "", q: str = "",
-              districts: str = ""):
+              districts: str = "", types: str = "", rooms: str = "", area_min: float | None = None,
+              area_max: float | None = None, price_min: float | None = None, price_max: float | None = None):
+        from .props import passes
         rows = db.leads(category or None, None, deal or None, q or None,
-                        districts=[d for d in districts.split(",") if d] or None)
+                        districts=[d for d in districts.split(",") if d] or None, limit=1000)
+        f = {"types": [x for x in types.split(",") if x], "rooms": [x for x in rooms.split(",") if x],
+             "area_min": area_min, "area_max": area_max, "price_min": price_min, "price_max": price_max}
+        rows = [r for r in rows if passes(r, f)][:300]
         if status:
             wanted = set(status.split(","))
             rows = [r for r in rows if r["status"] in wanted]
@@ -260,6 +266,9 @@ def create_app(base: Settings | None = None, background: bool = True) -> FastAPI
         for k, v in p.items():
             if k not in Settings.TUNABLE:
                 raise HTTPException(400, f"невідомий параметр {k}")
+            if k == "notify_filter":
+                if not isinstance(v, dict) or set(v) - {"types", "rooms", "area_min", "area_max", "price_min", "price_max"}:
+                    raise HTTPException(400, "поганий фільтр")
             if k == "notify_districts":
                 from .districts import DISTRICTS, OUTSIDE
                 if not isinstance(v, list) or any(d not in DISTRICTS + [OUTSIDE] for d in v):

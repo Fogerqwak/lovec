@@ -85,7 +85,23 @@ class DB:
                 c.execute("ALTER TABLE listings ADD COLUMN ai TEXT")
             if "district" not in cols:
                 c.execute("ALTER TABLE listings ADD COLUMN district TEXT")
+            for col, typ in (("prop_type", "TEXT"), ("rooms", "REAL"), ("area_m2", "REAL")):
+                if col not in cols:
+                    c.execute(f"ALTER TABLE listings ADD COLUMN {col} {typ}")
         self._backfill_districts()
+        self._backfill_props()
+
+    def _backfill_props(self) -> None:
+        if self.get_kv("props_v1") == "1":
+            return
+        from . import props
+        with self.conn() as c:
+            for r in c.execute("SELECT id, url, title, description FROM listings").fetchall():
+                l = Listing("x", "x", r["url"] or "", title=r["title"] or "", description=r["description"] or "")
+                props.enrich(l)
+                c.execute("UPDATE listings SET prop_type=?, rooms=?, area_m2=? WHERE id=?",
+                          (l.prop_type, l.rooms, l.area_m2, r["id"]))
+        self.set_kv("props_v1", "1")
 
     def _backfill_districts(self) -> None:
         if self.get_kv("districts_v1") == "1":
@@ -129,6 +145,7 @@ class DB:
                           (x.name, x.source, x.url, x.deal))
         self.set_kv("searches_seeded", "1")
         self.set_kv("rent_pack_v1", "1")  # свіжа установка: пошуки вже з config.yaml
+        self.set_kv("rent_pack_v2", "1")
 
     RENT_PACK = [  # одноразово додається при оновленні (фокус на оренду)
         ("Bazoš · domy prenájom BA", "bazos", "https://reality.bazos.sk/prenajmu/dom/?hlokalita=81101&humkreis=15", "prenajom"),
@@ -147,6 +164,14 @@ class DB:
             # битий шаблон TopReality з першої версії — вимикаємо, нормальний додається з Mini App
             c.execute("UPDATE searches SET enabled=0 WHERE source='topreality' AND url LIKE '%obec=d100%'")
         self.set_kv("rent_pack_v1", "1")
+
+    def migrate_rooms_pack(self) -> None:
+        if self.get_kv("rent_pack_v2") == "1":
+            return
+        url = "https://reality.bazos.sk/prenajmu/podnajom/?hlokalita=81101&humkreis=15"
+        if url not in {r["url"] for r in self.searches()}:
+            self.add_search("Bazoš · izby / podnájom BA", "bazos", url, "prenajom")
+        self.set_kv("rent_pack_v2", "1")
 
     def searches(self) -> list[dict]:
         with self.conn() as c:
@@ -222,13 +247,13 @@ class DB:
             c.execute(
                 """INSERT INTO listings(key,source,ext_id,url,search_name,deal,title,price_eur,price_text,
                        location,description,seller_name,phones,seller_listing_count,score,category,reasons,
-                       wants_no_rk,first_seen,updated_at,district)
-                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                       wants_no_rk,first_seen,updated_at,district,prop_type,rooms,area_m2)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                    ON CONFLICT(key) DO NOTHING""",
                 (l.key, l.source, l.ext_id, l.url, search_name, deal, l.title, l.price_eur, l.price_text,
                  l.location, l.description[:5000], l.seller_name, ",".join(l.phones), l.seller_listing_count,
                  l.score, l.category, json.dumps(l.reasons, ensure_ascii=False), int(l.wants_no_rk), now(), now(),
-                 l.district),
+                 l.district, l.prop_type, l.rooms, l.area_m2),
             )
             row = c.execute("SELECT id FROM listings WHERE key=?", (l.key,)).fetchone()
             lid = row["id"]

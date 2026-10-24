@@ -425,3 +425,49 @@ def test_district_filter_api_and_push(tmp_path, monkeypatch):
     scraper.run_once(eff, db, lambda lid, row: sent.append(row))
     assert sent == []                                        # Петржалка, а пушимо лише Ружинов
     assert db.leads(districts=["Petržalka"])[-1]["ext_id"] in ("0", "77")
+
+
+# ---------- тип / кімнати / площа / ціна ----------
+
+def test_props_detection():
+    from lovec.props import detect_area, detect_rooms, detect_type
+    assert detect_type("GARSONKA V NOVOSTAVBE", "", "https://reality.bazos.sk/inzerat/1/x.php") == "byt"
+    assert detect_rooms("GARSONKA V NOVOSTAVBE", "") == 1
+    assert detect_type("Prenajmem izbu v 3i byte, Ružinov", "") == "izba"
+    assert detect_type("Rodinný dom Rača na prenájom", "") == "dom"
+    assert detect_rooms("1,5-izbový byt Kramáre", "") == 1.5
+    assert detect_rooms("Dvojizbový byt na prenájom", "") == 2
+    assert detect_rooms("Rodinný dom", "5 izieb, záhrada") == 5
+    assert detect_area("Prenájom 2-izbového bytu", "Byt 54,5 m², loggia.") == 54.5
+    assert detect_area("Dom", "Úžitková plocha: 180 m2, pozemok 600 m2", "dom") == 180
+    assert detect_area("Byt", "500 m od zastávky") is None
+
+
+def test_props_filter_and_push(tmp_path):
+    from lovec.props import passes
+    row = {"deal": "prenajom", "prop_type": "byt", "rooms": 2.0, "area_m2": 55, "price_eur": 750}
+    assert passes(row, {"types": ["byt"], "rooms": ["2"], "area_min": 40, "price_max": 800})
+    assert not passes(row, {"price_max": 700})
+    assert not passes(row, {"rooms": ["1", "3"]})
+    assert not passes(row, {"types": ["izba"]})
+    assert passes({**row, "area_m2": None}, {"area_min": 60})            # невідома площа проходить
+    assert passes({**row, "deal": "predaj", "price_eur": 250000}, {"price_max": 800})  # ціна — лише оренда
+    assert passes({**row, "rooms": 4.5}, {"rooms": ["4+"]})
+
+    s = Settings(db_path=str(tmp_path / "p.db"), telegram_token=TOKEN, allowed_users=[42], searches=[])
+    c = TestClient(create_app(s, background=False))
+    db = DB(s.db_path)
+    for i, (t, p) in enumerate([("Prenajmem 2-izbový byt, 55 m2", 750), ("Prenajmem 3-izbový byt 80 m2", 1100),
+                                ("Prenajmem izbu pre študenta", 350)]):
+        l = classify(Listing("bazos", str(i), f"u{i}", title=t, description=t, price_eur=p))
+        from lovec import props
+        props.enrich(l)
+        db.save(l, "s", "prenajom")
+    h = {"X-Tg-Init-Data": _init()}
+    got = c.get("/api/leads?deal=prenajom&types=byt&price_max=900", headers=h).json()
+    assert [r["ext_id"] for r in got] == ["0"]
+    assert len(c.get("/api/leads?types=izba", headers=h).json()) == 1
+    assert c.patch("/api/settings", headers=h, json={"notify_filter": {"hack": 1}}).status_code == 400
+    assert c.patch("/api/settings", headers=h, json={"notify_filter": {"types": ["byt"], "price_max": 900}}).json()["notify_filter"]["price_max"] == 900
+    from lovec.telegram import render
+    assert "2-кімн. 55 м²" in render(db.get(1))

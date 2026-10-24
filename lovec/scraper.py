@@ -117,8 +117,10 @@ def run_once(s: Settings, db: DB, notify: Notifier | None = None) -> dict:
                         l.seller_listing_count = Bazos.count_user_listings(uhtml)
                         classify(l, db.phone_usage(l.match_keys, l.key), db.blacklisted(l.match_keys), **kw)
 
+                from . import props
                 from .districts import detect
                 l.district = detect(l.location, l.title, l.description)
+                props.enrich(l)
                 lid = db.save(l, search.name, search.deal)
                 db.mark_seen(url)
                 summary["new"] += 1
@@ -128,6 +130,8 @@ def run_once(s: Settings, db: DB, notify: Notifier | None = None) -> dict:
                        (l.category == "suspicious" and s.notify_suspicious)
                 if want and s.notify_districts:
                     want = (l.district in s.notify_districts) if l.district else s.notify_unknown_district
+                if want and s.notify_filter:
+                    want = props.passes(db.get(lid), s.notify_filter)
                 if l.category != "agency" and s.ai_auto and s.ai_api_key and not ai_blocked:
                     try:
                         from .ai import summarize

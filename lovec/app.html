@@ -53,6 +53,15 @@
   .bar { display: flex; gap: 8px; margin-top: 10px; }
   .bar input { flex: 1; }
   .bar select { width: auto; }
+  .fbtn { flex: none; padding: 0 12px; border-radius: 10px; background: var(--card); border: 1px solid var(--line); font-size: 14px; }
+  .fbtn.on { background: var(--btn); color: var(--btn-ink); border-color: var(--btn); }
+  .fpanel { display: none; background: var(--card); border-radius: 14px; padding: 4px 14px 12px; margin-top: 8px; }
+  .fpanel.open { display: block; }
+  .fpanel .k { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--hint); margin: 12px 0 6px; }
+  .fpanel .chips { margin: 0; padding: 0; flex-wrap: wrap; overflow: visible; }
+  .range { display: flex; align-items: center; gap: 8px; }
+  .range input { width: 0; flex: 1; }
+  .fpanel .acts { display: flex; gap: 8px; margin-top: 12px; }
 
   /* lead cards */
   .list { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
@@ -159,6 +168,19 @@
   <div class="bar">
     <input type="search" id="q" placeholder="Вулиця, телефон, нотатка…">
     <select id="deal"><option value="prenajom">Оренда</option><option value="predaj">Продаж</option><option value="">Все</option></select>
+    <button class="fbtn" id="fbtn">Фільтр</button>
+  </div>
+  <div class="fpanel" id="fpanel">
+    <div class="k">Тип</div>
+    <div class="chips" id="f-types"></div>
+    <div class="k">Кімнат</div>
+    <div class="chips" id="f-rooms"></div>
+    <div class="k">Площа, м²</div>
+    <div class="range"><input id="f-amin" inputmode="numeric" placeholder="від"> — <input id="f-amax" inputmode="numeric" placeholder="до"></div>
+    <div id="f-price-box"><div class="k">Оренда, €/міс</div>
+    <div class="range"><input id="f-pmin" inputmode="numeric" placeholder="від"> — <input id="f-pmax" inputmode="numeric" placeholder="до"></div></div>
+    <div class="muted" style="margin-top:10px">Оголошення, де площу чи кімнати не вказано, не відкидаються.</div>
+    <div class="acts"><button class="btn ghost" id="f-reset">Скинути</button><button class="btn" id="f-apply">Показати</button></div>
   </div>
   <div class="list" id="list"></div>
 </section>
@@ -194,6 +216,10 @@
   <div class="group" id="set-work"></div>
   <h2>Сповіщення</h2>
   <div class="group" id="set-notify"></div>
+  <h2>Фільтр пушів</h2>
+  <div class="group"><div class="set"><div class="lbl" id="nf-desc">—</div></div>
+    <div class="set"><button class="btn ghost" id="nf-copy">Взяти з фільтра списку</button><button class="btn danger" id="nf-clear" style="flex:none">Скинути</button></div></div>
+  <div class="muted" style="margin:8px 4px">Пуші лише про те, що проходить фільтр (тип, кімнати, площа, ціна оренди). Решта однаково зберігається.</div>
   <h2>Райони для пушів</h2>
   <div class="group" id="set-dist"></div>
   <div class="muted" style="margin:8px 4px">Нічого не вибрано — пуші з усіх районів. Ліди з інших районів однаково зберігаються і видні в списку.</div>
@@ -271,7 +297,7 @@ $("#tabs").onclick = e => { const t = TABS.find(x => x.id === e.target.closest("
 
 async function loadLeads() {
   const p = new URLSearchParams({ category: tab.cat, status: tab.status || "", deal: $("#deal").value, q: $("#q").value,
-    districts: [...selD].join(",") });
+    districts: [...selD].join(","), ...filterParams(F) });
   loadDistricts();
   try { leads = await api("/api/leads?" + p); } catch (e) { $("#list").innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
   $("#list").innerHTML = leads.length ? leads.map(r => `
@@ -280,6 +306,7 @@ async function loadLeads() {
       <div class="t">${esc(r.title || "без назви")}</div>
       <div class="tags">
         ${r.price_text ? `<span class="tag price">${esc(r.price_text)}</span>` : ""}
+        ${specTags(r)}
         ${r.district ? `<span class="tag d">📍 ${esc(r.district)}</span>` : (r.location ? `<span class="tag">${esc(r.location.slice(0, 28))}</span>` : "")}
         ${r.wants_no_rk ? `<span class="tag">🤫</span>` : ""}
         ${r.note ? `<span class="tag">📝</span>` : ""}
@@ -291,7 +318,58 @@ async function loadLeads() {
 $("#list").onclick = e => { const b = e.target.closest(".lead"); if (b) { haptic(); location.hash = "lead-" + b.dataset.id; } };
 let qt; $("#q").oninput = () => { clearTimeout(qt); qt = setTimeout(loadLeads, 250); };
 $("#deal").value = LS.get("lovec.deal", "prenajom");
-$("#deal").onchange = () => { LS.set("lovec.deal", $("#deal").value); loadLeads(); };
+$("#deal").onchange = () => { LS.set("lovec.deal", $("#deal").value); fillFilterForm(); loadLeads(); };
+
+// ---------- фільтр: тип, кімнати, площа, ціна ----------
+const TYPE_L = { byt: "Квартира", izba: "Кімната", dom: "Будинок" };
+const ROOM_L = { "1": "Гарсоньєра / 1", "2": "2", "3": "3", "4+": "4+" };
+let F = LS.get("lovec.filter", {});
+function filterParams(f) {
+  const o = {};
+  if (f.types?.length) o.types = f.types.join(",");
+  if (f.rooms?.length) o.rooms = f.rooms.join(",");
+  for (const k of ["area_min", "area_max", "price_min", "price_max"]) if (f[k]) o[k] = f[k];
+  return o;
+}
+function describeFilter(f) {
+  const p = [];
+  if (f.types?.length) p.push(f.types.map(x => TYPE_L[x]).join("/"));
+  if (f.rooms?.length) p.push(f.rooms.join(",") + " кімн.");
+  if (f.area_min || f.area_max) p.push(`${f.area_min || 0}–${f.area_max || "∞"} м²`);
+  if (f.price_min || f.price_max) p.push(`${f.price_min || 0}–${f.price_max || "∞"} €/міс`);
+  return p.join(" · ");
+}
+function specTags(r) {
+  const out = [];
+  if (r.prop_type === "izba") out.push("кімната");
+  else if (r.rooms) out.push(`${r.rooms}-кімн.` + (r.prop_type === "dom" ? " будинок" : ""));
+  else if (r.prop_type === "dom") out.push("будинок");
+  if (r.area_m2) out.push(`${r.area_m2} м²`);
+  return out.map(x => `<span class="tag">${esc(x)}</span>`).join("");
+}
+function chipSet(el, labels, sel) {
+  el.innerHTML = Object.entries(labels).map(([k, v]) => `<button class="chip ${sel.includes(k) ? "on" : ""}" data-v="${k}">${v}</button>`).join("");
+  el.onclick = e => { const b = e.target.closest("button"); if (b) { haptic(); b.classList.toggle("on"); } };
+}
+const chipVals = el => [...el.querySelectorAll(".chip.on")].map(b => b.dataset.v);
+function fillFilterForm() {
+  chipSet($("#f-types"), TYPE_L, F.types || []);
+  chipSet($("#f-rooms"), ROOM_L, F.rooms || []);
+  $("#f-amin").value = F.area_min || ""; $("#f-amax").value = F.area_max || "";
+  $("#f-pmin").value = F.price_min || ""; $("#f-pmax").value = F.price_max || "";
+  $("#f-price-box").style.display = $("#deal").value === "predaj" ? "none" : "";
+  const n = Object.keys(filterParams(F)).length;
+  $("#fbtn").classList.toggle("on", n > 0);
+  $("#fbtn").textContent = n ? `Фільтр · ${n}` : "Фільтр";
+}
+$("#fbtn").onclick = () => { haptic(); fillFilterForm(); $("#fpanel").classList.toggle("open"); };
+const num = id => { const v = parseInt($(id).value.replace(/\D/g, ""), 10); return isNaN(v) ? undefined : v; };
+$("#f-apply").onclick = () => {
+  F = { types: chipVals($("#f-types")), rooms: chipVals($("#f-rooms")),
+        area_min: num("#f-amin"), area_max: num("#f-amax"), price_min: num("#f-pmin"), price_max: num("#f-pmax") };
+  LS.set("lovec.filter", F); notifyH(); $("#fpanel").classList.remove("open"); fillFilterForm(); loadLeads();
+};
+$("#f-reset").onclick = () => { F = {}; LS.set("lovec.filter", F); fillFilterForm(); loadLeads(); };
 
 // ---------- райони ----------
 let selD = new Set(LS.get("lovec.districts", []));
@@ -327,6 +405,7 @@ async function openLead(id) {
       <div class="dt">${esc(r.title || "без назви")}</div>
       <div class="tags">
         ${r.price_text ? `<span class="tag price">${esc(r.price_text)}</span>` : ""}
+        ${specTags(r)}
         ${r.district ? `<span class="tag d">📍 ${esc(r.district)}</span>` : ""}
         ${r.location ? `<span class="tag">${esc(r.location)}</span>` : ""}
         ${r.seller_name ? `<span class="tag">👤 ${esc(r.seller_name)}</span>` : ""}
@@ -476,6 +555,7 @@ async function loadSettings() {
   $("#set-notify").innerHTML = (S.ai ? toggle("ai_auto", "🤖 AI-підсумок одразу", "Для кожного нового 🟢/🟡, рядок з'явиться і в пуші") : "")
     + toggle("notify_private", "🟢 Приватні") + toggle("notify_suspicious", "🟡 Можливо приватні", "Сюди потрапляють і замасковані ріелтори");
   renderSetDist();
+  renderNotifyFilter();
   $("#set-filter").innerHTML = step("private_max", "Поріг 🟢", "м'який score ≤ цього → 🟢, вище → 🟡", -5, 5)
     + step("phone_reuse_limit", "Повтор продавця", "У скількох оголошеннях → 🟡", 2, 10);
   document.querySelectorAll("#s-settings input[data-k]").forEach(i => i.onchange = () => saveSetting(i.dataset.k, i.checked));
@@ -499,6 +579,16 @@ async function renderSetDist() {
   };
   $("#unk").onchange = e => saveSetting("notify_unknown_district", e.target.checked);
 }
+function renderNotifyFilter() {
+  const d = describeFilter(S.notify_filter || {});
+  $("#nf-desc").innerHTML = d ? esc(d) : `<span class="muted">Без фільтра — пуші про все</span>`;
+  $("#nf-copy").onclick = async () => {
+    if (!Object.keys(filterParams(F)).length) return toast("Спершу налаштуй «Фільтр» над списком лідів");
+    const f = { ...F }; for (const k in f) if (f[k] === undefined || (Array.isArray(f[k]) && !f[k].length)) delete f[k];
+    await saveSetting("notify_filter", f); renderNotifyFilter();
+  };
+  $("#nf-clear").onclick = async () => { await saveSetting("notify_filter", {}); renderNotifyFilter(); };
+}
 async function saveSetting(k, v) {
   try { S = await api("/api/settings", { method: "PATCH", body: { [k]: v } }); toast("Збережено"); if (k === "paused") loadStats(); }
   catch (e) { notifyH("error"); toast(e.message); loadSettings(); }
@@ -521,6 +611,7 @@ $("#run").onclick = async () => { haptic("medium"); const r = await api("/api/ru
 function route() { const m = location.hash.match(/^#lead-(\d+)/); if (m) openLead(m[1]); }
 window.addEventListener("hashchange", () => { if (location.hash.startsWith("#lead-")) route(); else if ($("#s-lead").classList.contains("on")) show("leads"); });
 renderTabs();
+fillFilterForm();
 api("/api/settings").then(s => { AI_ON = !!s.ai; }).catch(() => {})
   .finally(() => { if (location.hash.startsWith("#lead-")) route(); else loadLeads(); });
 setInterval(() => { if ($("#s-leads").classList.contains("on") && !document.activeElement.matches("input,textarea")) loadLeads(); }, 60000);

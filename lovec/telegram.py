@@ -33,7 +33,17 @@ def render(row: dict, public_url: str = "") -> str:
     loc = row.get("location") or ""
     if row.get("district") and row["district"].split()[0].lower() not in loc.lower():
         loc = f"{row['district']} · {loc}" if loc else row["district"]
-    meta = [x for x in [row.get("price_text"), loc] if x]
+    spec = []
+    if row.get("prop_type") == "izba":
+        spec.append("кімната")
+    elif row.get("rooms"):
+        r = row["rooms"]
+        spec.append(f"{r:g}-кімн." if row.get("prop_type") != "dom" else f"будинок {r:g}-кімн.")
+    elif row.get("prop_type") == "dom":
+        spec.append("будинок")
+    if row.get("area_m2"):
+        spec.append(f"{row['area_m2']:g} м²")
+    meta = [x for x in [row.get("price_text"), " ".join(spec), loc] if x]
     if meta:
         lines.append("💶 " + " · ".join(e(x) for x in meta))
     if row.get("phones"):

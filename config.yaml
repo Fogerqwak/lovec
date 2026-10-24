@@ -36,6 +36,10 @@ searches:
     source: bazos
     url: "https://reality.bazos.sk/prenajmu/dom/?hlokalita=81101&humkreis=15"
     deal: prenajom
+  - name: "Bazoš · izby / podnájom BA"
+    source: bazos
+    url: "https://reality.bazos.sk/prenajmu/podnajom/?hlokalita=81101&humkreis=15"
+    deal: prenajom
 
   # ---------- Nehnuteľnosti.sk ----------
   # Сортування "найновіші" — щоб нові були на першій сторінці.

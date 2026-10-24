@@ -21,6 +21,9 @@ class Listing:
     page_markers: list[str] = field(default_factory=list)
     extra: dict = field(default_factory=dict)
     district: str | None = None
+    prop_type: str | None = None  # byt | izba | dom
+    rooms: float | None = None
+    area_m2: float | None = None
 
     # Заповнює класифікатор
     score: int = 0
