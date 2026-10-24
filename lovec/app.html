@@ -70,6 +70,7 @@
   .lead.dim { opacity: .55; }
   .lead .top { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--hint); }
   .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .seeker .dot { background: var(--link); }
   .private .dot { background: var(--green); } .suspicious .dot { background: var(--yellow); } .agency .dot { background: var(--red); }
   .lead .t { font-weight: 600; margin: 4px 0 6px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .tags { display: flex; gap: 5px; flex-wrap: wrap; }
@@ -246,13 +247,14 @@ const notifyH = (t = "success") => tg?.HapticFeedback?.notificationOccurred?.(t)
 
 const STATUSES = __STATUSES__;
 const SRC = { bazos: "Bazoš", nehnutelnosti: "Nehnuteľnosti", reality_sk: "Reality.sk", topreality: "TopReality" };
-const CAT = { private: "приватна", suspicious: "можливо RK", agency: "ріелтор 100%" };
+const CAT = { private: "приватна", suspicious: "можливо RK", agency: "ріелтор 100%", seeker: "шукає житло" };
 const TABS = [
   { id: "new", label: "Нові", cat: "private,suspicious", status: "new" },
   { id: "work", label: "В роботі", cat: "private,suspicious", status: "called,no_answer,meeting,contract" },
   { id: "all", label: "Всі", cat: "private,suspicious" },
   { id: "closed", label: "Закриті", cat: "private,suspicious,agency", status: "rejected,not_interesting,agent" },
   { id: "agency", label: "Відсіяні RK", cat: "agency" },
+  { id: "seeker", label: "🔍 Шукають", cat: "seeker" },
 ];
 const DONE = ["rejected", "not_interesting", "agent"];
 let tab = TABS[0], leads = [], current = null;

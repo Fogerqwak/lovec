@@ -53,7 +53,7 @@ def check_search(search, s: Settings, n_details: int = 1) -> dict:
 def run_once(s: Settings, db: DB, notify: Notifier | None = None) -> dict:
     fetcher = Fetcher(s.request_delay_seconds)
     silent = s.first_run_silent and db.get_kv("first_run_done") != "1"
-    summary = {"lists_ok": 0, "lists_failed": [], "new": 0, "private": 0, "suspicious": 0, "agency": 0,
+    summary = {"lists_ok": 0, "lists_failed": [], "new": 0, "private": 0, "suspicious": 0, "agency": 0, "seeker": 0,
                "notified": 0, "silent": silent}
     budget = s.max_new_per_run if not silent else 10_000
     ai_blocked = False

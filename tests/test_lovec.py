@@ -511,3 +511,36 @@ def test_okres_filter(tmp_path):
     assert len(c.get("/api/leads?okresy=Bratislava V,?", headers=h).json()) == 2
     o = c.get("/api/okresy?deal=prenajom", headers=h).json()
     assert o["counts"]["Bratislava II"] == 2 and o["all"][0]["districts"] == ["Staré Mesto"]
+
+
+# ---------- «шукаю житло» ----------
+
+def test_seeker_detection():
+    from lovec.classify import is_seeker
+    yes = [("Hľadám 2-izbový byt na prenájom v Ružinove", ""),
+           ("HĽADÁME BYT NA DLHODOBÝ PRENÁJOM", ""),
+           ("Kúpim garsónku v Bratislave", ""),
+           ("Mladý pár hľadá podnájom", ""),
+           ("Študentka hľadá izbu od septembra", ""),
+           ("Dopyt - 3i byt Petržalka", ""),
+           ("2i byt Bratislava", "Dobrý deň, hľadáme 2-izbový byt na dlhodobý prenájom, sme slušná rodina.")]
+    no = [("Prenajmem 2-izbový byt, Ružinov", "Hľadám slušného nájomcu, ideálne pár."),
+          ("Predám byt", "Hľadáte bývanie blízko centra? Ponúkam na predaj byt."),
+          ("Garsónka v novostavbe", "Prenajmem garsónku. Hľadám nájomníka od 1.11."),
+          ("Byt na prenájom, Nivy", "Ponúkam na prenájom byt. Pre rýchle jednanie hľadáme nájomcu.")]
+    for t, d in yes:
+        assert is_seeker(t, d), t
+    for t, d in no:
+        assert not is_seeker(t, d), t
+
+
+def test_seeker_not_pushed_and_tab(tmp_path):
+    l = classify(L("Hľadám byt na prenájom", "Hľadám 1-izbový byt, slušný, pracujúci."))
+    assert l.category == "seeker"
+    s = Settings(db_path=str(tmp_path / "sk.db"), telegram_token=TOKEN, allowed_users=[42], searches=[])
+    c = TestClient(create_app(s, background=False))
+    db = DB(s.db_path)
+    db.save(l, "s", "prenajom")
+    h = {"X-Tg-Init-Data": _init()}
+    assert c.get("/api/leads", headers=h).json() == []                       # не серед лідів
+    assert len(c.get("/api/leads?category=seeker", headers=h).json()) == 1   # але є в «Шукають»

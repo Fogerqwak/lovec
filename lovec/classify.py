@@ -84,6 +84,26 @@ SOFT_AGENCY = [
 TITLE_BRAND = re.compile(r"^\s*([A-ZÁÄČĎÉÍĽĹŇÓÔŔŠŤÚÝŽ0-9&.\s]{3,30}?)\s*[-–|︱:]\s*")
 
 
+# «Шукаю житло» (попит), а не пропозиція
+WHAT = r"(byt\w*|garsonk\w*|garzonk\w*|izb\w*|dom\w*|podnajom\w*|prenajom\w*|pozemok|bydlen\w*|byvanie|\d[,.]?5? ?-? ?izb\w*|\d ?i\b)"
+SEEKER_TITLE = [
+    r"^\W*(hladam|hladame|kupim|kupime|zhanam|zhaname|potrebujem|potrebujeme|prenajmem si|prenajmeme si)\b",
+    rf"\b(hladam|hladame|hlada sa|hladaju|kupim|kupime|zhanam|zhaname)\b[^.!]{{0,40}}\b{WHAT}",
+    r"\bdopyt\b",
+    r"\b(student\w*|par|rodina|manzelia|pracujuci\w*|slusn\w*)\b[^.!]{0,25}\bhlada\w*",
+]
+SEEKER_DESC = rf"^\W*(\w+\W+){{0,6}}(hladam|hladame|zhanam|zhaname|kupim|kupime)\b[^.!]{{0,60}}\b{WHAT}"
+OFFER = r"\b(prenajmem|predam|ponukam|ponukame|predame|prenajmeme)\b(?! si)"
+
+
+def is_seeker(title: str, description: str = "") -> bool:
+    t, d = fold(title), fold(description)[:400]
+    if any(re.search(p, t) for p in SEEKER_TITLE):
+        return not re.search(OFFER, t)
+    # заголовок нейтральний («2i byt Ružinov»), але текст починається з «Hľadám…»
+    return bool(re.search(SEEKER_DESC, d)) and not re.search(OFFER, t + " " + d[:150])
+
+
 def is_company_name(name: str) -> bool:
     n = fold(name)
     return bool(n and HARD_NAME.search(n) and not NOT_NAME.search(n))
@@ -173,6 +193,10 @@ def classify(l: Listing, phone_reuse: int = 0, blacklisted: bool = False, *,
         add(1, "продавець ще в 1 оголошенні")
 
     l.score = score
+    if is_seeker(l.title, l.description):
+        l.category = "seeker"
+        l.reasons = ["🔍 шукає житло, а не пропонує"] + [f"🔴 {h}" for h in hard] + reasons
+        return l
     if hard:
         l.category = "agency"
         l.reasons = [f"🔴 {h}" for h in hard] + reasons

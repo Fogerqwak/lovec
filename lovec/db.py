@@ -378,6 +378,23 @@ class DB:
                 "last_run": self.get_kv("last_run"), "last_run_summary": self.get_kv("last_run_summary")}
 
 
+def mark_seekers(db: DB) -> int:
+    """Одноразово: оголошення «шукаю житло», що вже лежать у базі, — в окрему категорію."""
+    from .classify import is_seeker
+    if db.get_kv("seeker_v1") == "1":
+        return 0
+    n = 0
+    with db.conn() as c:
+        for r in c.execute("SELECT id, title, description, reasons FROM listings WHERE status != 'agent'").fetchall():
+            if is_seeker(r["title"] or "", r["description"] or ""):
+                reasons = ["🔍 шукає житло, а не пропонує"] + json.loads(r["reasons"] or "[]")
+                c.execute("UPDATE listings SET category='seeker', reasons=? WHERE id=?",
+                          (json.dumps(reasons, ensure_ascii=False), r["id"]))
+                n += 1
+    db.set_kv("seeker_v1", "1")
+    return n
+
+
 def reclassify_all(db: DB, phone_reuse_limit: int = 3, private_max: int = 1) -> int:
     """Одноразово після зміни правил: перерахувати збережені ліди (крім позначених тобою вручну)."""
     from .classify import classify
