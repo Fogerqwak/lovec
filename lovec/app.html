@@ -172,6 +172,8 @@
     <button class="fbtn" id="fbtn">Фільтр</button>
   </div>
   <div class="fpanel" id="fpanel">
+    <div class="k">Сортування</div>
+    <div class="chips" id="f-sort"></div>
     <div class="k">Тип</div>
     <div class="chips" id="f-types"></div>
     <div class="k">Кімнат</div>
@@ -324,6 +326,7 @@ $("#deal").onchange = () => { LS.set("lovec.deal", $("#deal").value); fillFilter
 
 // ---------- фільтр: тип, кімнати, площа, ціна ----------
 const TYPE_L = { byt: "Квартира", izba: "Кімната", dom: "Будинок" };
+const SORT_L = { new: "Найновіші", price_asc: "Дешевші ↑", price_desc: "Дорожчі ↓", area_desc: "Більша площа", ppm_asc: "Дешевше за м²" };
 const ROOM_L = { "1": "Гарсоньєра / 1", "2": "2", "3": "3", "4+": "4+" };
 let F = LS.get("lovec.filter", {});
 function filterParams(f) {
@@ -331,6 +334,7 @@ function filterParams(f) {
   if (f.types?.length) o.types = f.types.join(",");
   if (f.rooms?.length) o.rooms = f.rooms.join(",");
   for (const k of ["area_min", "area_max", "price_min", "price_max"]) if (f[k]) o[k] = f[k];
+  if (f.sort && f.sort !== "new") o.sort = f.sort;
   return o;
 }
 function describeFilter(f) {
@@ -355,19 +359,24 @@ function chipSet(el, labels, sel) {
 }
 const chipVals = el => [...el.querySelectorAll(".chip.on")].map(b => b.dataset.v);
 function fillFilterForm() {
+  // сортування — один вибір
+  $("#f-sort").innerHTML = Object.entries(SORT_L).map(([k, v]) => `<button class="chip ${(F.sort || "new") === k ? "on" : ""}" data-v="${k}">${v}</button>`).join("");
+  $("#f-sort").onclick = e => { const b = e.target.closest("button"); if (!b) return; haptic();
+    $("#f-sort").querySelectorAll(".chip").forEach(x => x.classList.toggle("on", x === b)); };
   chipSet($("#f-types"), TYPE_L, F.types || []);
   chipSet($("#f-rooms"), ROOM_L, F.rooms || []);
   $("#f-amin").value = F.area_min || ""; $("#f-amax").value = F.area_max || "";
   $("#f-pmin").value = F.price_min || ""; $("#f-pmax").value = F.price_max || "";
   $("#f-price-box").style.display = $("#deal").value === "predaj" ? "none" : "";
-  const n = Object.keys(filterParams(F)).length;
-  $("#fbtn").classList.toggle("on", n > 0);
-  $("#fbtn").textContent = n ? `Фільтр · ${n}` : "Фільтр";
+  const n = Object.keys(filterParams(F)).filter(k => k !== "sort").length;
+  const srt = F.sort && F.sort !== "new" ? " ↕" : "";
+  $("#fbtn").classList.toggle("on", n > 0 || !!srt);
+  $("#fbtn").textContent = (n ? `Фільтр · ${n}` : "Фільтр") + srt;
 }
 $("#fbtn").onclick = () => { haptic(); fillFilterForm(); $("#fpanel").classList.toggle("open"); };
 const num = id => { const v = parseInt($(id).value.replace(/\D/g, ""), 10); return isNaN(v) ? undefined : v; };
 $("#f-apply").onclick = () => {
-  F = { types: chipVals($("#f-types")), rooms: chipVals($("#f-rooms")),
+  F = { sort: chipVals($("#f-sort"))[0] || "new", types: chipVals($("#f-types")), rooms: chipVals($("#f-rooms")),
         area_min: num("#f-amin"), area_max: num("#f-amax"), price_min: num("#f-pmin"), price_max: num("#f-pmax") };
   LS.set("lovec.filter", F); notifyH(); $("#fpanel").classList.remove("open"); fillFilterForm(); loadLeads();
 };
@@ -597,8 +606,8 @@ function renderNotifyFilter() {
   const d = describeFilter(S.notify_filter || {});
   $("#nf-desc").innerHTML = d ? esc(d) : `<span class="muted">Без фільтра — пуші про все</span>`;
   $("#nf-copy").onclick = async () => {
-    if (!Object.keys(filterParams(F)).length) return toast("Спершу налаштуй «Фільтр» над списком лідів");
-    const f = { ...F }; for (const k in f) if (f[k] === undefined || (Array.isArray(f[k]) && !f[k].length)) delete f[k];
+    if (!Object.keys(filterParams(F)).filter(k => k !== "sort").length) return toast("Спершу налаштуй «Фільтр» над списком лідів");
+    const f = { ...F }; delete f.sort; for (const k in f) if (f[k] === undefined || (Array.isArray(f[k]) && !f[k].length)) delete f[k];
     await saveSetting("notify_filter", f); renderNotifyFilter();
   };
   $("#nf-clear").onclick = async () => { await saveSetting("notify_filter", {}); renderNotifyFilter(); };

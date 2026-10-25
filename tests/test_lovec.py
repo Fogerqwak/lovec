@@ -544,3 +544,28 @@ def test_seeker_not_pushed_and_tab(tmp_path):
     h = {"X-Tg-Init-Data": _init()}
     assert c.get("/api/leads", headers=h).json() == []                       # не серед лідів
     assert len(c.get("/api/leads?category=seeker", headers=h).json()) == 1   # але є в «Шукають»
+
+
+def test_room_in_big_flat_not_in_4plus(tmp_path):
+    from lovec.props import detect_type, passes
+    assert detect_type("Prenájom izby v 4-izbovom byte, Ružinov", "") == "izba"
+    assert detect_type("4-izbový byt, Ružinov", "Prenajmem izbu v 4-izbovom byte pre študentku.") == "izba"
+    assert detect_type("Prenajmem 4-izbový byt Ružinov", "Byt má 4 izby, kuchyňu.") == "byt"
+    assert detect_type("3 izby + kuchyňa, Dúbravka", "") == "byt"
+    room = {"deal": "prenajom", "prop_type": "izba", "rooms": None, "price_eur": 380}
+    assert not passes(room, {"rooms": ["4+"]})                        # не в розділі «4+ квартири»
+    assert passes(room, {"rooms": ["4+"], "types": ["izba", "byt"]})  # але якщо кімнати вибрані явно — так
+
+
+def test_sort_by_price(tmp_path):
+    s = Settings(db_path=str(tmp_path / "s.db"), telegram_token=TOKEN, allowed_users=[42], searches=[])
+    c = TestClient(create_app(s, background=False))
+    db = DB(s.db_path)
+    for i, p in enumerate([700, None, 450, 1200]):
+        db.save(classify(Listing("bazos", str(i), f"u{i}", title="Prenajmem byt", description="Prenajmem byt.",
+                                 price_eur=p, area_m2=None)), "s", "prenajom")
+    h = {"X-Tg-Init-Data": _init()}
+    prices = lambda q: [r["price_eur"] for r in c.get(f"/api/leads?{q}", headers=h).json()]
+    assert prices("sort=price_asc") == [450, 700, 1200, None]
+    assert prices("sort=price_desc") == [1200, 700, 450, None]
+    assert prices("sort=bogus")[0] in (450, 700, 1200, None)        # невідоме — не падає

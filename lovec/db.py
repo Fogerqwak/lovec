@@ -70,6 +70,15 @@ CREATE TABLE IF NOT EXISTS searches (
 """
 
 
+SORTS = {  # невідома ціна/площа — завжди в кінці
+    "new": "first_seen DESC",
+    "price_asc": "price_eur IS NULL, price_eur ASC, first_seen DESC",
+    "price_desc": "price_eur IS NULL, price_eur DESC, first_seen DESC",
+    "area_desc": "area_m2 IS NULL, area_m2 DESC, first_seen DESC",
+    "ppm_asc": "(price_eur IS NULL OR area_m2 IS NULL), price_eur / area_m2 ASC, first_seen DESC",
+}
+
+
 def now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -103,7 +112,7 @@ class DB:
         self.set_kv("okres_v1", "1")
 
     def _backfill_props(self) -> None:
-        if self.get_kv("props_v1") == "1":
+        if self.get_kv("props_v2") == "1":  # v2: кращe розпізнавання кімнат у квартирах
             return
         from . import props
         with self.conn() as c:
@@ -112,7 +121,7 @@ class DB:
                 props.enrich(l)
                 c.execute("UPDATE listings SET prop_type=?, rooms=?, area_m2=? WHERE id=?",
                           (l.prop_type, l.rooms, l.area_m2, r["id"]))
-        self.set_kv("props_v1", "1")
+        self.set_kv("props_v2", "1")
 
     def _backfill_districts(self) -> None:
         if self.get_kv("districts_v1") == "1":
@@ -317,7 +326,7 @@ class DB:
 
     def leads(self, category: str | None = None, status: str | None = None, deal: str | None = None,
               q: str | None = None, limit: int = 300, districts: list[str] | None = None,
-              okresy: list[str] | None = None) -> list[dict]:
+              okresy: list[str] | None = None, sort: str = "new") -> list[dict]:
         sql = "SELECT * FROM listings WHERE 1=1"
         args: list = []
         if okresy:
@@ -351,7 +360,7 @@ class DB:
         if q:
             sql += " AND (title LIKE ? OR location LIKE ? OR description LIKE ? OR phones LIKE ? OR note LIKE ?)"
             args += [f"%{q}%"] * 5
-        sql += " ORDER BY first_seen DESC LIMIT ?"
+        sql += f" ORDER BY {SORTS.get(sort, SORTS['new'])} LIMIT ?"
         args.append(limit)
         with self.conn() as c:
             return [dict(r) for r in c.execute(sql, args)]

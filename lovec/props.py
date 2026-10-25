@@ -10,9 +10,14 @@ from .classify import fold
 
 TYPES = {"byt": "Квартира", "izba": "Кімната", "dom": "Будинок"}
 
+# «v 4-izbovom byte», «v 3i byte», «v rodinnom dome» — кімната ВСЕРЕДИНІ квартири/будинку
+IN_FLAT = r"v (\d[,.]?5? ?-? ?(izb\w*|i)|jedno\w*|dvoj\w*|troj\w*|styr\w*|pat\w*|velk\w*|zdielan\w*|spolocn\w*) ?(byte|bytu|dome)\b"
 ROOM_FOR_RENT = re.compile(
-    r"\b(prenaj\w* izb[uay]|izb[au] (na |do )?prenaj|podnaj\w*|spolubyv\w*|spolubyvajuc\w*|volna izba|"
-    r"izba pre (1|jednu|jedneho|studenta|studentku|par)|izba v \d|izbu v|lozk\w* (v izbe|pre))")
+    r"\b(prenaj\w* (si )?(jednej |jednu |1 )?izb[uyae]\b|izb[au] (na |do )?prenaj|podnaj\w*|spolubyv\w*|volna izba|volnu izbu|"
+    r"izb[au] pre (1|jednu|jedneho|studenta|studentku|par|zenu|muza|slecnu)|izb[au] v |izbu v|lozk\w* (v izbe|pre)|"
+    r"miesto v izbe|zdielan\w* izb\w*|" + IN_FLAT + r")")
+# заголовок «Izba Ružinov», «Pekná izba, Nivy» — але не «3 izby» (це кімнати квартири)
+ROOM_TITLE = re.compile(r"(?<![\d,.\-] )(?<![\d,.\-])\bizb[au]\b(?! ?(a|v)? ?kuchyn)")
 HOUSE = re.compile(r"\b(rodinn\w* dom\w*|\bdom\b|domu\b|domy\b|chalup\w*|chat[aku]\b|vil[aku]\b|radov\w* dom\w*|bungalov)")
 FLAT = re.compile(r"\b(byt\w*|garsonk\w*|garzonk\w*|garsoniera|apartman\w*|mezonet\w*|penthouse|loft|\d[,.]?5? ?-? ?izb\w*|\d ?kk\b)")
 GARSONKA = re.compile(r"\b(garsonk\w*|garzonk\w*|garsoniera|1 ?kk\b|studio\b)")
@@ -25,13 +30,16 @@ AREA_LABEL = re.compile(r"(?:plocha|vymera|rozloha|uzitkov\w*)[^0-9]{0,25}(\d{2,
 
 def detect_type(title: str, desc: str, url: str = "") -> str | None:
     t, d, u = fold(title), fold(desc)[:800], (url or "").lower()
-    if "/podnajom/" in u or ROOM_FOR_RENT.search(t):
+    if "/podnajom/" in u or ROOM_FOR_RENT.search(t) or ROOM_TITLE.search(t):
+        return "izba"
+    # заголовок про квартиру («4-izbový byt, Ružinov»), а в тексті одразу «prenajmem izbu v byte»
+    if ROOM_FOR_RENT.search(d[:300]) and not re.search(r"\b(cely|celkovy|cely byt|kompletn\w* byt)\b", t + " " + d[:300]):
         return "izba"
     if "/dom/" in u or "/domy/" in u or re.search(r"/(rodinny-dom|dom)-", u):
         return "dom"
     if "/byt/" in u or "/byty/" in u:
         # у категорії «byty» буває «prenájom izby» — заголовок має пріоритет
-        return "izba" if ROOM_FOR_RENT.search(t) else "byt"
+        return "byt"
     if FLAT.search(t):
         return "byt"
     if HOUSE.search(t):
@@ -81,6 +89,9 @@ def passes(row: dict, f: dict) -> bool:
     if not f:
         return True
     if f.get("types") and row.get("prop_type") and row["prop_type"] not in f["types"]:
+        return False
+    # кімната в 4-кімнатній квартирі ≠ 4-кімнатна квартира
+    if f.get("rooms") and row.get("prop_type") == "izba" and "izba" not in (f.get("types") or []):
         return False
     if f.get("rooms") and row.get("rooms") is not None and row.get("prop_type") != "izba":
         r = row["rooms"]

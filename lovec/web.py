@@ -147,11 +147,12 @@ def create_app(base: Settings | None = None, background: bool = True) -> FastAPI
     @app.get("/api/leads", dependencies=A)
     def leads(category: str = "private,suspicious", status: str = "", deal: str = "", q: str = "",
               districts: str = "", okresy: str = "", types: str = "", rooms: str = "", area_min: float | None = None,
-              area_max: float | None = None, price_min: float | None = None, price_max: float | None = None):
+              area_max: float | None = None, price_min: float | None = None, price_max: float | None = None,
+              sort: str = "new"):
         from .props import passes
         rows = db.leads(category or None, None, deal or None, q or None,
                         districts=[d for d in districts.split(",") if d] or None,
-                        okresy=[o for o in okresy.split(",") if o] or None, limit=1000)
+                        okresy=[o for o in okresy.split(",") if o] or None, limit=1000, sort=sort)
         f = {"types": [x for x in types.split(",") if x], "rooms": [x for x in rooms.split(",") if x],
              "area_min": area_min, "area_max": area_max, "price_min": price_min, "price_max": price_max}
         rows = [r for r in rows if passes(r, f)][:300]
