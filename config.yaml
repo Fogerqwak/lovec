@@ -77,6 +77,14 @@ searches:
   # ---------- Портали «від власника» ----------
   # bezrealitky.sk / bezmaklerov.sk: відкрий сайт, вистав Bratislava + prenájom, скопіюй URL сюди
   # (або в Mini App → Пошуки → Додати)
+  - name: "Bezrealitky · byty prenájom BA"
+    source: bezrealitky
+    url: "https://www.bezrealitky.sk/vyhladat?boundaryPoints=%5B%7B%22lat%22%3A48.15319553645588%2C%22lng%22%3A17.129613224532534%7D%2C%7B%22lat%22%3A48.15319553645588%2C%22lng%22%3A17.08696017546592%7D%2C%7B%22lat%22%3A48.13380940876766%2C%22lng%22%3A17.08696017546592%7D%2C%7B%22lat%22%3A48.13380940876766%2C%22lng%22%3A17.129613224532534%7D%2C%7B%22lat%22%3A48.15319553645588%2C%22lng%22%3A17.129613224532534%7D%5D&estateType=BYT&location=exact&offerType=PRONAJEM&osm_value=Bratislava%2C+okres+Bratislava+I%2C+Bratislavsk%C3%BD+kraj%2C+812+45%2C+Slovensko&regionOsmIds=N530544342&currency=EUR"
+    deal: prenajom
+  - name: "Bezrealitky · byty predaj BA"
+    source: bezrealitky
+    url: "https://www.bezrealitky.sk/vyhladat?boundaryPoints=%5B%7B%22lat%22%3A48.15319553645588%2C%22lng%22%3A17.129613224532534%7D%2C%7B%22lat%22%3A48.15319553645588%2C%22lng%22%3A17.08696017546592%7D%2C%7B%22lat%22%3A48.13380940876766%2C%22lng%22%3A17.08696017546592%7D%2C%7B%22lat%22%3A48.13380940876766%2C%22lng%22%3A17.129613224532534%7D%2C%7B%22lat%22%3A48.15319553645588%2C%22lng%22%3A17.129613224532534%7D%5D&estateType=BYT&location=exact&offerType=PRODEJ&osm_value=Bratislava%2C+okres+Bratislava+I%2C+Bratislavsk%C3%BD+kraj%2C+812+45%2C+Slovensko&regionOsmIds=N530544342&currency=EUR"
+    deal: predaj
   - name: "Realfree · byty prenájom BA"
     source: realfree
     url: "https://realfree.sk/prenajom-bytu-bratislava"

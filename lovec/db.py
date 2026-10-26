@@ -177,6 +177,7 @@ class DB:
         self.set_kv("rent_pack_v1", "1")  # свіжа установка: пошуки вже з config.yaml
         self.set_kv("owner_pack_v1", "1")
         self.set_kv("topreality_v2", "1")
+        self.set_kv("bezrealitky_v1", "1")
         self.set_kv("rent_pack_v2", "1")
 
     RENT_PACK = [  # одноразово додається при оновленні (фокус на оренду)
