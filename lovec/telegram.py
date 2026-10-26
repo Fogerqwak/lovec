@@ -5,6 +5,7 @@ import asyncio
 import html
 import json
 import logging
+import re
 
 import httpx
 
@@ -74,10 +75,19 @@ def render(row: dict, public_url: str = "") -> str:
 
 def keyboard(lid: int, current: str = "new", app_url: str = "") -> dict:
     btns = [{"text": ("• " if k == current else "") + STATUSES[k], "callback_data": f"s:{k}:{lid}"} for k in QUICK]
-    rows = [btns[:3], btns[3:] + [{"text": "🗑", "callback_data": f"x:ask:{lid}"}]]
+    rows = [btns[:3], btns[3:] + [{"text": "🗑", "callback_data": f"x:ask:{lid}"}],
+            [{"text": "📷 Фото", "callback_data": f"p:a:{lid}"}, {"text": "🗂 Фото zip", "callback_data": f"p:z:{lid}"}]]
     if app_url:  # web_app-кнопки Telegram дозволяє лише в особистому чаті з ботом
         rows.append([{"text": "📋 Картка в Lovec", "web_app": {"url": f"{app_url}/#lead-{lid}"}}])
     return {"inline_keyboard": rows}
+
+
+def photo_caption(row: dict) -> str:
+    e = html.escape
+    loc = row.get("district") or row.get("location") or ""
+    bits = [x for x in [row.get("price_text"), loc] if x]
+    return (f"<code>{lead_code(row['id'])}</code> · " + " · ".join(e(b) for b in bits) +
+            f'\n<a href="{e(row["url"])}">{e((row.get("title") or "оголошення")[:80])}</a>')
 
 
 class Telegram:
@@ -101,6 +111,91 @@ class Telegram:
         except httpx.HTTPError as e:
             log.warning("deleteMessage: %s", e)
 
+    def allowed(self, chat: str, user_id=None) -> bool:
+        """Лише мій чат або whitelist (TELEGRAM_ALLOWED_USERS)."""
+        if str(chat) == str(self.s.telegram_chat_id):
+            return True
+        try:
+            return int(user_id) in self.s.allowed_users or int(chat) in self.s.allowed_users
+        except (TypeError, ValueError):
+            return False
+
+    # ---------- фото ----------
+    def deliver_photos(self, chat_id, lid: int, as_zip: bool = False) -> str:
+        """Синхронно (у потоці): «завантажую…» → скачати → альбоми по 10 або zip. -> короткий результат."""
+        from .photos import MESSAGES, PhotoError, get_photos, make_zip
+        api, chat = self.api, str(chat_id)
+        httpx.post(f"{api}/sendChatAction", timeout=10,
+                   json={"chat_id": chat, "action": "upload_document" if as_zip else "upload_photo"})
+        tmp = httpx.post(f"{api}/sendMessage", timeout=15, json={
+            "chat_id": chat, "text": f"⏳ {lead_code(lid)}: завантажую фото…"}).json()
+        tmp_id = (tmp.get("result") or {}).get("message_id")
+
+        def finish(text: str | None) -> None:
+            if not tmp_id:
+                if text:
+                    httpx.post(f"{api}/sendMessage", timeout=15, json={"chat_id": chat, "text": text})
+                return
+            if text:
+                httpx.post(f"{api}/editMessageText", timeout=15, json={"chat_id": chat, "message_id": tmp_id, "text": text})
+            else:
+                httpx.post(f"{api}/deleteMessage", timeout=15, json={"chat_id": chat, "message_id": tmp_id})
+
+        try:
+            files = get_photos(self.db, lid)
+        except PhotoError as e:
+            msg = f"❌ {lead_code(lid)}: {MESSAGES.get(e.kind, str(e))}"
+            finish(msg)
+            return msg
+        row = self.db.get(lid)
+        cap = photo_caption(row)
+        try:
+            if as_zip:
+                z = make_zip(self.db, lid, files)
+                with z.open("rb") as fh:
+                    r = httpx.post(f"{api}/sendDocument", timeout=180,
+                                   data={"chat_id": chat, "caption": cap + f"\n📷 {len(files)} фото", "parse_mode": "HTML"},
+                                   files={"document": (z.name, fh, "application/zip")})
+                ok = r.json().get("ok")
+            else:
+                ok = True
+                for start in range(0, len(files), 10):
+                    chunk = files[start:start + 10]
+                    first = start == 0
+                    if len(chunk) == 1:
+                        with chunk[0].open("rb") as fh:
+                            r = httpx.post(f"{api}/sendPhoto", timeout=120, data={
+                                "chat_id": chat, **({"caption": cap, "parse_mode": "HTML"} if first else {})},
+                                files={"photo": (chunk[0].name, fh)})
+                    else:
+                        media = []
+                        for i, f in enumerate(chunk):
+                            m = {"type": "photo", "media": f"attach://f{i}"}
+                            if first and i == 0:
+                                m.update(caption=cap + f"\n📷 {len(files)} фото", parse_mode="HTML")
+                            media.append(m)
+                        handles = [f.open("rb") for f in chunk]
+                        try:
+                            r = httpx.post(f"{api}/sendMediaGroup", timeout=180,
+                                           data={"chat_id": chat, "media": json.dumps(media)},
+                                           files={f"f{i}": (f.name, h) for i, (f, h) in enumerate(zip(chunk, handles))})
+                        finally:
+                            for h in handles:
+                                h.close()
+                    if not r.json().get("ok"):
+                        log.warning("send photos: %s", r.text[:300])
+                        ok = False
+                        break
+        except httpx.HTTPError as e:
+            log.warning("send photos: %s", e)
+            ok = False
+        if not ok:
+            msg = f"❌ {lead_code(lid)}: Telegram не прийняв фото (завеликі?). Спробуй «zip»."
+            finish(msg)
+            return msg
+        finish(None)
+        return f"ok:{len(files)}"
+
     def setup_menu(self) -> None:
         """Кнопка «Lovec» зліва від поля вводу відкриває Mini App."""
         if not self.s.telegram_token:
@@ -109,6 +204,7 @@ class Telegram:
             httpx.post(f"{self.api}/setMyCommands", timeout=20, json={"commands": [
                 {"command": "app", "description": "Відкрити Lovec"},
                 {"command": "stats", "description": "Зведення"},
+                {"command": "photos", "description": "Фото оголошення: /photos L-0042 [zip]"},
                 {"command": "id", "description": "Мій chat_id"}]})
             if self.app_url:
                 r = httpx.post(f"{self.api}/setChatMenuButton", timeout=20, json={
@@ -168,7 +264,7 @@ class Telegram:
         cq = u.get("callback_query")
         if cq:
             chat = str(cq.get("message", {}).get("chat", {}).get("id"))
-            if chat != str(self.s.telegram_chat_id):
+            if not self.allowed(chat, (cq.get("from") or {}).get("id")):
                 return  # чужі натискання ігноруємо
             try:
                 kind, status, lid = cq["data"].split(":")
@@ -176,6 +272,11 @@ class Telegram:
             except ValueError:
                 return
             mid = cq["message"]["message_id"]
+            if kind == "p":  # 📷 Фото / 🗂 zip — у фоні, щоб бот не «зависав» на інших кнопках
+                await c.post(f"{self.api}/answerCallbackQuery",
+                             json={"callback_query_id": cq["id"], "text": "Завантажую фото…"})
+                asyncio.create_task(asyncio.to_thread(self.deliver_photos, chat, lid, status == "z"))
+                return
             if kind == "x":  # видалення в два тапи, щоб не стерти лід випадково
                 await c.post(f"{self.api}/answerCallbackQuery", json={"callback_query_id": cq["id"]})
                 if status == "ask":
@@ -204,6 +305,19 @@ class Telegram:
         msg = u.get("message") or {}
         chat = str(msg.get("chat", {}).get("id"))
         text = (msg.get("text") or "").strip()
+        is_me = self.allowed(chat, (msg.get("from") or {}).get("id"))
+        if re.match(r"^/photos?\b", text):
+            if not is_me:
+                return
+            parts = text.split()
+            lid = parse_code(parts[1]) if len(parts) > 1 else None
+            if lid is None:
+                await c.post(f"{self.api}/sendMessage", json={"chat_id": chat, "text":
+                              "Формат: /photos L-0042 — альбомом, /photos L-0042 zip — одним архівом"})
+                return
+            as_zip = any(p.lower() == "zip" for p in parts[2:])
+            asyncio.create_task(asyncio.to_thread(self.deliver_photos, chat, lid, as_zip))
+            return
         if text.startswith("/id") or (text.startswith("/start") and not self.app_url):
             # Допомагає дізнатись свій chat_id при налаштуванні
             await c.post(f"{self.api}/sendMessage", json={"chat_id": chat, "text": f"chat_id: {chat}"})
@@ -212,7 +326,7 @@ class Telegram:
             if self.app_url and not chat.startswith("-"):
                 body["reply_markup"] = {"inline_keyboard": [[{"text": "Відкрити Lovec", "web_app": {"url": self.app_url}}]]}
             await c.post(f"{self.api}/sendMessage", json=body)
-        elif parse_code(text) is not None and chat == str(self.s.telegram_chat_id):
+        elif parse_code(text) is not None and is_me:
             # швидко знайти лід за ID з CRM: написати боту «L-0042»
             lid = parse_code(text)
             row = await asyncio.to_thread(self.db.get, lid)
@@ -222,7 +336,7 @@ class Telegram:
                 await c.post(f"{self.api}/sendMessage", json={
                     "chat_id": chat, "text": render(row, self.s.public_url), "parse_mode": "HTML",
                     "disable_web_page_preview": True, "reply_markup": self._kb(lid, row.get("status", "new"))})
-        elif text.startswith("/stats") and chat == str(self.s.telegram_chat_id):
+        elif text.startswith("/stats") and is_me:
             st = await asyncio.to_thread(self.db.stats)
             cats = st["by_category"]
             await c.post(f"{self.api}/sendMessage", json={"chat_id": chat, "text": (

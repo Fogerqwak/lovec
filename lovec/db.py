@@ -104,7 +104,7 @@ class DB:
             if "district" not in cols:
                 c.execute("ALTER TABLE listings ADD COLUMN district TEXT")
             for col, typ in (("prop_type", "TEXT"), ("rooms", "REAL"), ("area_m2", "REAL"), ("okres", "TEXT"),
-                             ("posted_at", "TEXT"), ("backlog", "INTEGER DEFAULT 0")):
+                             ("posted_at", "TEXT"), ("backlog", "INTEGER DEFAULT 0"), ("images", "TEXT")):
                 if col not in cols:
                     c.execute(f"ALTER TABLE listings ADD COLUMN {col} {typ}")
         self._backfill_districts()
@@ -327,13 +327,14 @@ class DB:
             c.execute(
                 """INSERT INTO listings(key,source,ext_id,url,search_name,deal,title,price_eur,price_text,
                        location,description,seller_name,phones,seller_listing_count,score,category,reasons,
-                       wants_no_rk,first_seen,updated_at,district,prop_type,rooms,area_m2,okres,posted_at,backlog)
-                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                       wants_no_rk,first_seen,updated_at,district,prop_type,rooms,area_m2,okres,posted_at,backlog,images)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                    ON CONFLICT(key) DO NOTHING""",
                 (l.key, l.source, l.ext_id, l.url, search_name, deal, l.title, l.price_eur, l.price_text,
                  l.location, l.description[:5000], l.seller_name, ",".join(l.phones), l.seller_listing_count,
                  l.score, l.category, json.dumps(l.reasons, ensure_ascii=False), int(l.wants_no_rk), now(), now(),
-                 l.district, l.prop_type, l.rooms, l.area_m2, l.okres, l.posted_at, int(l.backlog)),
+                 l.district, l.prop_type, l.rooms, l.area_m2, l.okres, l.posted_at, int(l.backlog),
+                 json.dumps(l.images) if l.images else None),
             )
             row = c.execute("SELECT id FROM listings WHERE key=?", (l.key,)).fetchone()
             lid = row["id"]
@@ -408,6 +409,10 @@ class DB:
             c.execute("DELETE FROM listing_phones WHERE listing_id=?", (lid,))
             c.execute("DELETE FROM listings WHERE id=?", (lid,))
             return dict(r)
+
+    def set_images(self, lid: int, urls: list[str]) -> None:
+        with self.conn() as c:
+            c.execute("UPDATE listings SET images=? WHERE id=?", (json.dumps(urls), lid))
 
     def set_ai(self, lid: int, ai: dict) -> None:
         with self.conn() as c:

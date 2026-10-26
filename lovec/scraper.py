@@ -43,7 +43,8 @@ def check_search(search, s: Settings, n_details: int = 1) -> dict:
             weak = not l.title or len(l.description) < 50
             out["samples"].append({"url": url, "title": l.title, "price": l.price_text, "location": l.location,
                                    "seller": l.seller_name, "phones": l.phones, "desc_len": len(l.description),
-                                   "category": l.category, "score": l.score, "reasons": l.reasons, "weak": weak})
+                                   "category": l.category, "score": l.score, "reasons": l.reasons, "weak": weak,
+                                   "photos": len(l.images)})
         out["ok"] = not any(x.get("error") or x.get("weak") for x in out["samples"])
         return out
     finally:

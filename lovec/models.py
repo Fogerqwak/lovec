@@ -27,6 +27,7 @@ class Listing:
     area_m2: float | None = None
     posted_at: str | None = None  # дата публікації, якщо сайт її показує
     backlog: bool = False          # підтягнуте зі старих (без пушу)
+    images: list[str] = field(default_factory=list)  # URL фото (повнорозмірні, у порядку сайту)
 
     # Заповнює класифікатор
     score: int = 0

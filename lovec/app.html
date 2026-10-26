@@ -478,6 +478,10 @@ async function openLead(id) {
       ${phones.map(p => `<div class="phone"><a class="btn" href="tel:+${p}">📞 ${fphone(p)}</a><button class="btn ghost" data-copy="+${p}">Копіювати</button></div>`).join("")
         || `<div class="muted" style="margin-bottom:8px">Телефон на сайті прихований — відкрий оголошення.</div>`}
       <button class="btn ghost" style="width:100%" id="open-ad">Відкрити оголошення ↗</button>
+      <div class="row" style="margin-top:8px">
+        <button class="btn ghost" id="ph-chat">📷 Фото в чат</button>
+        <button class="btn ghost" id="ph-zip">🗂 Скачати фото (zip)</button>
+      </div>
     </div>
     ${AI_ON || r.ai ? `<h2>🤖 AI-підсумок</h2><div class="sec ai" id="ai-box" style="margin-top:0">${renderAI(r.ai)}</div>` : ""}
     <h2>Статус</h2>
@@ -498,6 +502,29 @@ async function openLead(id) {
          : (confirm("Видалити оголошення?") && go());
   };
   $("#open-ad").onclick = () => openExternal(r.url);
+  $("#ph-chat").onclick = async () => {
+    haptic("medium");
+    try { await api(`/api/leads/${r.id}/photos/send`, { method: "POST", body: { zip: false } }); toast("Бот надсилає фото в чат"); }
+    catch (e) { toast(e.message); }
+  };
+  $("#ph-zip").onclick = async () => {
+    // у Telegram файл з Mini App не скачати — бот надішле zip у чат; у браузері — звичайне скачування
+    if (inTg) {
+      try { await api(`/api/leads/${r.id}/photos/send`, { method: "POST", body: { zip: true } }); toast("Бот надсилає zip у чат"); }
+      catch (e) { toast(e.message); }
+      return;
+    }
+    const b = $("#ph-zip"); b.disabled = true; b.textContent = "⏳ Завантажую…";
+    try {
+      const auth = LS.get("lovec.auth", "");
+      const res = await fetch(`/api/leads/${r.id}/photos.zip`, { headers: auth ? { Authorization: "Basic " + auth } : {} });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || `HTTP ${res.status}`); }
+      const url = URL.createObjectURL(await res.blob());
+      const a = document.createElement("a"); a.href = url; a.download = `${code(r.id)}.zip`; a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+    } catch (e) { toast(e.message); }
+    b.disabled = false; b.textContent = "🗂 Скачати фото (zip)";
+  };
   bindAI(r);
   el.querySelectorAll("[data-copy]").forEach(b => b.onclick = async () => {
     try { await navigator.clipboard.writeText(b.dataset.copy); notifyH(); toast("Скопійовано"); } catch { toast(b.dataset.copy); }
@@ -592,7 +619,7 @@ async function runCheck(id, box) {
     const r = await api(`/api/searches/${id}/check`, { method: "POST" });
     const smp = r.samples.map(x => x.error ? `❌ ${esc(x.error)}` :
       `${x.weak ? "⚠️" : "✅"} <b>${esc((x.title || "без назви").slice(0, 60))}</b><br>
-       ${esc(x.price || "ціна ?")} · ${esc(x.location || "місце ?")} · опис ${x.desc_len} симв. · тел ${x.phones.length}<br>
+       ${esc(x.price || "ціна ?")} · ${esc(x.location || "місце ?")} · опис ${x.desc_len} симв. · тел ${x.phones.length} · фото ${x.photos ?? 0}<br>
        → ${CAT[x.category]} (score ${x.score})`).join("<br><br>");
     box.innerHTML = `<div class="result">${r.ok ? "✅ Працює" : "⚠️ Проблема"} · посилань: ${r.links}${r.error ? "<br>" + esc(r.error) : ""}${smp ? "<br><br>" + smp : ""}</div>`;
     notifyH(r.ok ? "success" : "warning");

@@ -1,3 +1,4 @@
+import json
 from lovec.classify import classify
 from lovec.db import DB
 from lovec.models import Listing
@@ -698,3 +699,134 @@ def test_bezrealitky_migration_replaces_center_only(tmp_path):
     bz = [r for r in db.searches() if r["source"] == "bezrealitky"]
     assert len(bz) == 2 and all("R388265" in r["url"] for r in bz)
     assert sorted(r["deal"] for r in bz) == ["predaj", "prenajom"]
+
+
+# ---------- фото ----------
+
+BAZOS_PHOTOS = """<html><head><meta property="og:image" content="https://www.bazos.sk/img/1/062/196684062.jpg?t=1"></head><body>
+<header><img src="https://www.bazos.sk/obrazky/bazos.svg"></header>
+<h1 class="nadpisdetail">GARSONKA</h1>
+<div class="carousel"><img src="https://www.bazos.sk/img/1/062/196684062.jpg?t=1">
+<img src="https://www.bazos.sk/img/2t/062/196684062.jpg?t=1"><img src="https://www.bazos.sk/img/3t/062/196684062.jpg?t=1"></div>
+<div class="podobne"><img src="https://www.bazos.sk/img/1t/480/196719480.jpg"></div>
+<img src="https://www.bazos.sk/obrazky/logo-fb.png"></body></html>"""
+
+
+def test_extract_bazos_full_size_only_own():
+    from lovec.photos import extract_image_urls
+    urls = extract_image_urls(BAZOS_PHOTOS, "https://reality.bazos.sk/inzerat/196684062/x.php", "bazos", "196684062")
+    assert urls == ["https://www.bazos.sk/img/1/062/196684062.jpg?t=1",
+                    "https://www.bazos.sk/img/2/062/196684062.jpg?t=1",
+                    "https://www.bazos.sk/img/3/062/196684062.jpg?t=1"]          # /1t/→/1/, порядок, без чужих і лого
+
+
+def test_extract_next_data_skips_similar_and_agent():
+    from lovec.photos import extract_image_urls
+    html = """<html><script id="__NEXT_DATA__" type="application/json">{"props":{"pageProps":{"advert":{
+      "photos":[{"url":"https://img.example.sk/p/aaa_thumb.jpg","original":"https://img.example.sk/p/aaa.jpg"},
+                {"original":"https://img.example.sk/p/bbb.jpg"}],
+      "agent":{"photo":"https://img.example.sk/agents/x.jpg"},
+      "similarAdverts":[{"photos":[{"original":"https://img.example.sk/p/zzz.jpg"}]}]}}}}</script>
+      <img src="https://img.example.sk/p/from-dom.jpg"></html>"""
+    urls = extract_image_urls(html, "https://www.nehnutelnosti.sk/detail/x/y", "nehnutelnosti")
+    assert urls == ["https://img.example.sk/p/aaa.jpg", "https://img.example.sk/p/bbb.jpg"]
+
+
+def test_extract_jsonld_and_srcset():
+    from lovec.photos import extract_image_urls
+    ld = '<script type="application/ld+json">{"@type":"Product","image":["https://c.sk/1.jpg","https://c.sk/2.jpg"]}</script>'
+    assert extract_image_urls(ld, "https://x.sk/a") == ["https://c.sk/1.jpg", "https://c.sk/2.jpg"]
+    dom = '<img srcset="https://c.sk/a-320.jpg 320w, https://c.sk/a-1600.jpg 1600w"><img src="/static/icon-phone.png">'
+    assert extract_image_urls(dom, "https://x.sk/a") == ["https://c.sk/a-1600.jpg"]
+
+
+def _photo_db(tmp_path, images=None):
+    db = DB(str(tmp_path / "data" / "lovec.db"))
+    l = classify(Listing("bazos", "196684062", "https://reality.bazos.sk/inzerat/196684062/x.php",
+                         title="Garsónka", description="Prenajmem.", price_text="499 €", images=images or []))
+    l.district = "Petržalka"
+    return db, db.save(l, "s", "prenajom")
+
+
+def test_get_photos_download_filters_cache_zip(tmp_path, monkeypatch):
+    from lovec import photos
+    big = lambda n: bytes([n]) * 20_000
+    content = {"u1": big(1), "u2": big(2), "u3": big(1), "u4": b"x" * 500, "u5": None, "u6": big(6)}
+    calls = []
+
+    def fake_one(client, url):
+        calls.append(url)
+        return url, content[url], "image/jpeg"
+    monkeypatch.setattr(photos, "_download_one", fake_one)
+    db, lid = _photo_db(tmp_path, ["u1", "u2", "u3", "u4", "u5", "u6"])
+    files = photos.get_photos(db, lid, fetch_page=lambda u: pytest_fail())   # URL з бази — на сайт не ходимо
+    assert [f.name for f in files] == ["01.jpg", "02.jpg", "03.jpg"]      # u3 — дубль за хешем, u4 — дрібний, u5 — помилка
+    assert files[2].read_bytes() == big(6)                                 # порядок збережено
+    assert files[0].parent == tmp_path / "data" / "photos" / str(lid)
+    n = len(calls)
+    assert photos.get_photos(db, lid) == files and len(calls) == n         # кеш
+    z = photos.make_zip(db, lid, files)
+    import zipfile
+    assert zipfile.ZipFile(z).namelist() == [f"L-{lid:04d}_01.jpg", f"L-{lid:04d}_02.jpg", f"L-{lid:04d}_03.jpg"]
+
+
+def pytest_fail():
+    raise AssertionError("не мало ходити на сайт")
+
+
+def test_get_photos_errors_and_page_fallback(tmp_path, monkeypatch):
+    from lovec import photos
+    db, lid = _photo_db(tmp_path)
+    import pytest
+    with pytest.raises(photos.PhotoError) as e:
+        photos.get_photos(db, 9999)
+    assert e.value.kind == "not_found"
+    with pytest.raises(photos.PhotoError) as e:
+        photos.get_photos(db, lid, fetch_page=lambda u: None)
+    assert e.value.kind == "site_down"
+    with pytest.raises(photos.PhotoError) as e:
+        photos.get_photos(db, lid, fetch_page=lambda u: "<html><p>bez fotiek</p></html>")
+    assert e.value.kind == "no_photos"
+    monkeypatch.setattr(photos, "_download_one", lambda c, u: (u, u.encode() * 2000, "image/jpeg"))
+    files = photos.get_photos(db, lid, fetch_page=lambda u: BAZOS_PHOTOS)   # старий лід без URL у базі
+    assert len(files) == 3
+    assert len(json.loads(db.get(lid)["images"])) == 3                       # URL збережені на майбутнє
+
+
+def test_telegram_photos_albums_access_and_button(tmp_path, monkeypatch):
+    import httpx as _httpx
+    from lovec import photos, telegram as tgm
+    db, lid = _photo_db(tmp_path, [f"u{i}" for i in range(13)])
+    monkeypatch.setattr(photos, "_download_one", lambda c, u: (u, (u + "#").encode() * 8000, "image/jpeg"))
+    sent = []
+
+    class R:
+        def __init__(self, body=None):
+            self.text = "{}"
+            self._b = body or {"ok": True, "result": {"message_id": 77}}
+        def json(self):
+            return self._b
+
+    def fake_post(url, **kw):
+        method = url.rsplit("/", 1)[1]
+        media = json.loads(kw["data"]["media"]) if method == "sendMediaGroup" else None
+        sent.append((method, media, kw.get("data"), sorted((kw.get("files") or {}).keys())))
+        return R()
+    monkeypatch.setattr(_httpx, "post", fake_post)
+    s = Settings(db_path=db.path, telegram_token=TOKEN, telegram_chat_id="42", allowed_users=[42], searches=[])
+    t = tgm.Telegram(s, db)
+    assert t.deliver_photos("42", lid) == "ok:13"
+    methods = [m for m, *_ in sent]
+    assert methods == ["sendChatAction", "sendMessage", "sendMediaGroup", "sendMediaGroup", "deleteMessage"]
+    g1, g2 = sent[2][1], sent[3][1]
+    assert len(g1) == 10 and len(g2) == 3                                    # альбоми по 10
+    assert f"L-{lid:04d}" in g1[0]["caption"] and "Petržalka" in g1[0]["caption"] and "bazos.sk" in g1[0]["caption"]
+    assert "caption" not in g2[0]
+    sent.clear()
+    assert t.deliver_photos("42", lid, as_zip=True) == "ok:13"
+    assert [m for m, *_ in sent] == ["sendChatAction", "sendMessage", "sendDocument", "deleteMessage"]
+    sent.clear()
+    assert t.deliver_photos("42", 9999).startswith("❌") and "не знайдено" in t.deliver_photos("42", 9999)
+    assert t.allowed("42") and t.allowed("-100500", user_id=42) and not t.allowed("7", user_id=7)
+    kb = tgm.keyboard(lid)["inline_keyboard"]
+    assert any(b.get("callback_data") == f"p:a:{lid}" for row in kb for b in row)

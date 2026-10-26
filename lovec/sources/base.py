@@ -118,6 +118,11 @@ class Source:
                 l.price_eur, l.price_text = parse_price(page_text[i:i + 1500])
         l.phones = normalize_phones(l.description + " " + self._contact_zone(soup))
         l.page_markers = self._markers(page_text)
+        try:
+            from ..photos import extract_image_urls
+            l.images = extract_image_urls(html, url, self.name, ext_id)
+        except Exception:  # noqa: BLE001 — фото не мають ламати парсинг оголошення
+            l.images = []
         self.enrich(soup, l, page_text)
         return l
 

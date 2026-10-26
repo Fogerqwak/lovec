@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
 
@@ -196,6 +196,7 @@ def create_app(base: Settings | None = None, background: bool = True) -> FastAPI
             ai = json.loads(r["ai"]) if r.get("ai") else None
             r["ai"] = {"tldr": ai.get("tldr"), "verdict": (ai.get("seller") or {}).get("verdict")} if ai else None
             r["description"] = (r.get("description") or "")[:300]
+            r["photos_n"] = len(json.loads(r.pop("images", None) or "[]"))
         return rows
 
     def _lead(lid: int) -> dict:
@@ -223,6 +224,29 @@ def create_app(base: Settings | None = None, background: bool = True) -> FastAPI
             raise HTTPException(400, str(e))
         db.set_ai(lid, ai)
         return _lead(lid)
+
+    @app.get("/api/leads/{lid}/photos.zip", dependencies=A)
+    async def photos_zip(lid: int):
+        from .models import lead_code
+        from .photos import MESSAGES, PhotoError, get_photos, make_zip
+        try:
+            files = await asyncio.to_thread(get_photos, db, lid)
+        except PhotoError as e:
+            raise HTTPException(404 if e.kind != "site_down" else 502, MESSAGES.get(e.kind, str(e)))
+        z = await asyncio.to_thread(make_zip, db, lid, files)
+        return FileResponse(z, media_type="application/zip", filename=f"{lead_code(lid)}.zip")
+
+    @app.post("/api/leads/{lid}/photos/send")
+    async def photos_send(lid: int, p: dict | None = None, user: dict = Depends(auth)):
+        """З Mini App: бот надсилає фото в чат того, хто натиснув (у браузері — в основний чат)."""
+        if not db.get(lid):
+            raise HTTPException(404, "оголошення не знайдено")
+        tg = Telegram(base, db)
+        if not tg.enabled:
+            raise HTTPException(400, "Telegram не налаштовано")
+        chat = user["id"] if user.get("via") == "telegram" else base.telegram_chat_id
+        asyncio.create_task(asyncio.to_thread(tg.deliver_photos, chat, lid, bool((p or {}).get("zip"))))
+        return {"ok": True}
 
     @app.delete("/api/leads/{lid}", dependencies=A)
     async def delete_lead(lid: int):
