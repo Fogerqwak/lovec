@@ -637,3 +637,36 @@ def test_backfill_collect_and_process(tmp_path, monkeypatch):
     assert all(r["backlog"] == 1 and r["posted_at"] for r in rows)
     assert [r["ext_id"] for r in db.leads(backlog=0)] == ["101"]
     assert sent == []                                               # без пушів
+
+
+# ---------- портали «від власника» ----------
+
+def test_owner_portals_links_and_parse():
+    br = SOURCES["bezrealitky"]
+    html = '''<a href="/nehnutelnosti-byty-domy/912345-ponuka-prenajom-bytu-ruzinov">a</a>
+              <a href="https://www.bezrealitky.sk/nehnutelnosti-byty-domy/912345-ponuka-prenajom-bytu-ruzinov?x=1">dup</a>
+              <a href="/vypis/ponuka-prenajom/byt/bratislava">cat</a>'''
+    assert [i for i, _ in br.extract_links(html, "https://www.bezrealitky.sk/vypis/x")] == ["912345"]
+    detail = '''<html><head><meta property="og:title" content="Prenájom 2-izbového bytu 54 m²">
+      <script id="__NEXT_DATA__" type="application/json">{"props":{"pageProps":{"advert":{"id":"912345",
+      "price":780,"surface":54,"disposition":"DISP_2_1","address":"Bajkalská, Bratislava - Ružinov"}}}}</script></head>
+      <body><h1>Prenájom 2-izbového bytu 54 m²</h1><p>Prenajmem svoj zrekonštruovaný byt blízko Trnavského mýta, voľný od 1.12.</p></body></html>'''
+    l = br.parse_detail(detail, "912345", "https://www.bezrealitky.sk/nehnutelnosti-byty-domy/912345-x")
+    assert l.price_eur == 780 and l.site_private_flag is True
+    assert "Ružinov" in l.location
+    from lovec.districts import detect
+    assert detect(l.location, l.title, l.description) == "Ružinov"
+    assert classify(l).category == "private"
+
+    rf = SOURCES["realfree"]
+    assert [i for i, _ in rf.extract_links('<a href="/inzerat/prenajom-3-izboveho-bytu-na-ulici-jana-holleho-v-trencine">x</a>',
+                                            "https://realfree.sk/prenajom-bytu")] == ["prenajom-3-izboveho-bytu-na-ulici-jana-holleho-v-trencine"]
+    bm = SOURCES["bezmaklerov"]
+    assert [i for i, _ in bm.extract_links('<a href="/sk/inzerat/cg3K7idGqc6QVpqELegg7r">x</a>',
+                                            "https://www.bezmaklerov.sk/sk/nehnutelnosti")] == ["cg3K7idGqc6QVpqELegg7r"]
+    assert source_from_url("https://www.bezrealitky.sk/vypis/ponuka-prenajom/byt/bratislava") == "bezrealitky"
+    assert source_from_url("https://realfree.sk/prenajom-bytu-bratislava") == "realfree"
+    assert source_from_url("https://www.bezmaklerov.sk/sk/nehnutelnosti") == "bezmaklerov"
+    # агентство на «безріелторському» порталі однаково ховається
+    l2 = classify(Listing("realfree", "x", "u", title="Prenájom bytu", description="Realitná kancelária XY ponúka na prenájom byt."))
+    assert l2.category == "agency"

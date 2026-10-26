@@ -74,6 +74,14 @@ searches:
     url: "https://www.reality.sk/domy/bratislava/prenajom/?order=created_date-newest"
     deal: prenajom
 
+  # ---------- Портали «від власника» ----------
+  # bezrealitky.sk / bezmaklerov.sk: відкрий сайт, вистав Bratislava + prenájom, скопіюй URL сюди
+  # (або в Mini App → Пошуки → Додати)
+  - name: "Realfree · byty prenájom BA"
+    source: realfree
+    url: "https://realfree.sk/prenajom-bytu-bratislava"
+    deal: prenajom
+
   # ---------- TopReality.sk ----------
   # Найпростіше: відкрий сайт, вистав фільтри (Bratislava, byty, predaj,
   # zoradiť od najnovších), скопіюй URL з адресного рядка сюди.

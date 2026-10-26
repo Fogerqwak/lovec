@@ -205,7 +205,7 @@
   <h2>Додати пошук</h2>
   <div class="sec" style="margin-top:0">
     <div class="muted" style="margin-bottom:8px">Відкрий сайт, вистав фільтри і <b>сортування від найновіших</b>, скопіюй посилання сюди.
-      Bazoš, Nehnuteľnosti, Reality.sk, TopReality.</div>
+      Bazoš, Nehnuteľnosti, Reality.sk, TopReality, Bezrealitky, Realfree, Bezmaklérov.</div>
     <input id="ns-url" placeholder="https://reality.bazos.sk/predam/byt/?hlokalita=…" inputmode="url">
     <div class="row" style="margin-top:8px">
       <input id="ns-name" placeholder="Назва (необов'язково)">
@@ -263,7 +263,8 @@ const haptic = (t = "light") => tg?.HapticFeedback?.impactOccurred?.(t);
 const notifyH = (t = "success") => tg?.HapticFeedback?.notificationOccurred?.(t);
 
 const STATUSES = __STATUSES__;
-const SRC = { bazos: "Bazoš", nehnutelnosti: "Nehnuteľnosti", reality_sk: "Reality.sk", topreality: "TopReality" };
+const SRC = { bazos: "Bazoš", nehnutelnosti: "Nehnuteľnosti", reality_sk: "Reality.sk", topreality: "TopReality",
+  bezrealitky: "Bezrealitky", realfree: "Realfree", bezmaklerov: "Bezmaklérov" };
 const CAT = { private: "приватна", suspicious: "можливо RK", agency: "ріелтор 100%", seeker: "шукає житло" };
 const TABS = [
   { id: "new", label: "Нові", cat: "private,suspicious", status: "new", backlog: "0" },

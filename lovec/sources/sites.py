@@ -186,4 +186,84 @@ class TopReality(Source):
             l.page_markers.append("rk_box")
 
 
-SOURCES: dict[str, Source] = {s.name: s for s in (Bazos(), Nehnutelnosti(), RealitySk(), TopReality())}
+# ---------- сайти «від власника» (без ріелторів за правилами порталу) ----------
+
+def _next_data(soup: BeautifulSoup) -> dict:
+    s = soup.find("script", id="__NEXT_DATA__")
+    if not s or not s.string:
+        return {}
+    try:
+        import json
+        return json.loads(s.string)
+    except ValueError:
+        return {}
+
+
+def _find_advert(obj, depth: int = 0):
+    """Шукає в JSON Next.js словник оголошення: має ціну і площу/диспозицію."""
+    if depth > 12:
+        return None
+    if isinstance(obj, dict):
+        keys = set(obj)
+        if "price" in keys and keys & {"surface", "disposition", "estateType", "offerType", "address"}:
+            return obj
+        for v in obj.values():
+            r = _find_advert(v, depth + 1)
+            if r:
+                return r
+    elif isinstance(obj, list):
+        for v in obj[:50]:
+            r = _find_advert(v, depth + 1)
+            if r:
+                return r
+    return None
+
+
+class OwnerPortal(Source):
+    """Спільне: портал заявляє, що оголошення лише від власників. Не віримо сліпо (ріелтори
+    проникають усюди), але даємо м'який плюс і читаємо дані з JSON Next.js, якщо є."""
+
+    def enrich(self, soup: BeautifulSoup, l: Listing, page_text: str) -> None:
+        if l.site_private_flag is None:
+            l.site_private_flag = True
+        ad = _find_advert(_next_data(soup))
+        if ad:
+            p = ad.get("price")
+            if isinstance(p, (int, float)) and p > 0 and l.price_eur is None:
+                l.price_eur, l.price_text = float(p), f"{p:,.0f} €".replace(",", " ")
+            surf = ad.get("surface")
+            if isinstance(surf, (int, float)) and surf > 0 and " m2" not in l.description:
+                l.description += f" Plocha: {surf:g} m2."
+            addr = ad.get("address")
+            if isinstance(addr, str) and not l.location:
+                l.location = clean(addr)[:80]
+            elif isinstance(addr, dict) and not l.location:
+                l.location = clean(" ".join(str(addr.get(k) or "") for k in ("street", "city", "cityDistrict")))[:80]
+        if not l.location:
+            m = re.search(r"Bratislava\s?[-–]\s?[A-ZÁČĎÉÍĽĹŇÓÔŔŠŤÚÝŽ][\wáäčďéíľĺňóôŕšťúýž]+(?:\s[A-ZÁČĎÉÍĽĹŇÓÔŔŠŤÚÝŽ][\wáäčďéíľĺňóôŕšťúýž]+)?",
+                          l.title + " " + page_text)
+            if m:
+                l.location = m.group(0)
+
+
+class Bezrealitky(OwnerPortal):
+    """bezrealitky.sk (Next.js). Деталка: /nehnutelnosti-byty-domy/123456-ponuka-prenajom-bytu-…"""
+    name = "bezrealitky"
+    detail_re = re.compile(
+        r"https?://(?:www\.)?bezrealitky\.(?:sk|cz)/(?:nehnutelnosti|nemovitosti)-byty-domy/(?P<id>\d{4,})(?:-[^/?#]*)?")
+
+
+class Realfree(OwnerPortal):
+    """realfree.sk. Деталка: /inzerat/prenajom-3-izboveho-bytu-…-4a3010; список: /prenajom-bytu-bratislava?page=N"""
+    name = "realfree"
+    detail_re = re.compile(r"https?://(?:www\.)?realfree\.sk/inzerat/(?P<id>[a-z0-9][a-z0-9\-]{3,})")
+
+
+class Bezmaklerov(OwnerPortal):
+    """bezmaklerov.sk. Деталка: /sk/inzerat/cg3K7idGqc6QVpqELegg7r"""
+    name = "bezmaklerov"
+    detail_re = re.compile(r"https?://(?:www\.)?bezmaklerov\.sk/(?:sk/)?inzerat/(?P<id>[A-Za-z0-9]{8,})")
+
+
+SOURCES: dict[str, Source] = {s.name: s for s in (Bazos(), Nehnutelnosti(), RealitySk(), TopReality(),
+                                                  Bezrealitky(), Realfree(), Bezmaklerov())}

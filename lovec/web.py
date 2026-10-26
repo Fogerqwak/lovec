@@ -29,7 +29,8 @@ log = logging.getLogger(__name__)
 basic = HTTPBasic(auto_error=False)
 
 SOURCE_HOSTS = {"bazos.sk": "bazos", "nehnutelnosti.sk": "nehnutelnosti", "reality.sk": "reality_sk",
-                "topreality.sk": "topreality"}
+                "topreality.sk": "topreality", "bezrealitky.sk": "bezrealitky", "bezrealitky.cz": "bezrealitky",
+                "realfree.sk": "realfree", "bezmaklerov.sk": "bezmaklerov"}
 
 
 def source_from_url(url: str) -> str | None:
@@ -65,6 +66,7 @@ def create_app(base: Settings | None = None, background: bool = True) -> FastAPI
     db.seed_searches(base.searches)
     db.migrate_searches()
     db.migrate_rooms_pack()
+    db.migrate_owner_portals()
     from .db import reclassify_all
     reclassify_all(db, base.phone_reuse_limit, base.private_max)
     from .db import mark_seekers
@@ -295,7 +297,8 @@ def create_app(base: Settings | None = None, background: bool = True) -> FastAPI
     def add_search(p: SearchIn):
         src = source_from_url(p.url.strip())
         if not src:
-            raise HTTPException(400, "Підтримуються лише bazos.sk, nehnutelnosti.sk, reality.sk, topreality.sk")
+            raise HTTPException(400, "Підтримуються: bazos.sk, nehnutelnosti.sk, reality.sk, topreality.sk, "
+                                     "bezrealitky.sk, realfree.sk, bezmaklerov.sk")
         if p.deal not in ("predaj", "prenajom"):
             raise HTTPException(400, "deal: predaj або prenajom")
         name = p.name.strip() or f"{src} · {'predaj' if p.deal == 'predaj' else 'prenájom'}"

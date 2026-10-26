@@ -175,6 +175,7 @@ class DB:
                           (x.name, x.source, x.url, x.deal))
         self.set_kv("searches_seeded", "1")
         self.set_kv("rent_pack_v1", "1")  # свіжа установка: пошуки вже з config.yaml
+        self.set_kv("owner_pack_v1", "1")
         self.set_kv("rent_pack_v2", "1")
 
     RENT_PACK = [  # одноразово додається при оновленні (фокус на оренду)
@@ -194,6 +195,14 @@ class DB:
             # битий шаблон TopReality з першої версії — вимикаємо, нормальний додається з Mini App
             c.execute("UPDATE searches SET enabled=0 WHERE source='topreality' AND url LIKE '%obec=d100%'")
         self.set_kv("rent_pack_v1", "1")
+
+    def migrate_owner_portals(self) -> None:
+        if self.get_kv("owner_pack_v1") == "1":
+            return
+        url = "https://realfree.sk/prenajom-bytu-bratislava"
+        if url not in {r["url"] for r in self.searches()}:
+            self.add_search("Realfree · byty prenájom BA", "realfree", url, "prenajom")
+        self.set_kv("owner_pack_v1", "1")
 
     def migrate_rooms_pack(self) -> None:
         if self.get_kv("rent_pack_v2") == "1":

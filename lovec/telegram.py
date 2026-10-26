@@ -15,7 +15,8 @@ from .settings import Settings
 log = logging.getLogger(__name__)
 
 SOURCE_NAMES = {"bazos": "Bazoš", "nehnutelnosti": "Nehnuteľnosti", "reality_sk": "Reality.sk",
-                "topreality": "TopReality"}
+                "topreality": "TopReality", "bezrealitky": "Bezrealitky", "realfree": "Realfree",
+                "bezmaklerov": "Bezmaklérov"}
 QUICK = ["called", "no_answer", "meeting", "not_interesting", "agent"]
 
 

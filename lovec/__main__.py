@@ -33,6 +33,7 @@ def main() -> None:
     db.seed_searches(base.searches)
     db.migrate_searches()
     db.migrate_rooms_pack()
+    db.migrate_owner_portals()
     s = effective(base, db)
 
     if a.cmd == "serve":

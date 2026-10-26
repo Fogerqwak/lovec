@@ -175,6 +175,7 @@ class Source:
 
     @staticmethod
     def _largest_block(soup: BeautifulSoup) -> str:
+        soup = BeautifulSoup(str(soup), "lxml")  # копія: оригінал (з JSON у <script>) ще знадобиться в enrich
         for t in soup(["script", "style", "noscript", "nav", "header", "footer"]):
             t.decompose()
         best = ""
