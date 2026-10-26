@@ -9,7 +9,7 @@ import logging
 import httpx
 
 from .db import DB
-from .models import STATUSES
+from .models import STATUSES, lead_code, parse_code
 from .settings import Settings
 
 log = logging.getLogger(__name__)
@@ -28,7 +28,7 @@ def render(row: dict, public_url: str = "") -> str:
     head = {"private": "🟢 <b>Приватна особа</b>", "suspicious": "🟡 <b>Можливо RK</b> — глянь причини"}.get(
         row["category"], "🔴 RK")
     deal = "продаж" if row.get("deal") == "predaj" else "оренда"
-    lines = [f"{head} · {deal} · {SOURCE_NAMES.get(row['source'], row['source'])}",
+    lines = [f"<code>{lead_code(row['id'])}</code> {head} · {deal} · {SOURCE_NAMES.get(row['source'], row['source'])}",
              f'<a href="{e(row["url"])}">{e(row["title"] or "без назви")}</a>']
     loc = row.get("location") or ""
     if row.get("district") and row["district"].split()[0].lower() not in loc.lower():
@@ -211,6 +211,16 @@ class Telegram:
             if self.app_url and not chat.startswith("-"):
                 body["reply_markup"] = {"inline_keyboard": [[{"text": "Відкрити Lovec", "web_app": {"url": self.app_url}}]]}
             await c.post(f"{self.api}/sendMessage", json=body)
+        elif parse_code(text) is not None and chat == str(self.s.telegram_chat_id):
+            # швидко знайти лід за ID з CRM: написати боту «L-0042»
+            lid = parse_code(text)
+            row = await asyncio.to_thread(self.db.get, lid)
+            if not row:
+                await c.post(f"{self.api}/sendMessage", json={"chat_id": chat, "text": f"{lead_code(lid)} не знайдено"})
+            else:
+                await c.post(f"{self.api}/sendMessage", json={
+                    "chat_id": chat, "text": render(row, self.s.public_url), "parse_mode": "HTML",
+                    "disable_web_page_preview": True, "reply_markup": self._kb(lid, row.get("status", "new"))})
         elif text.startswith("/stats") and chat == str(self.s.telegram_chat_id):
             st = await asyncio.to_thread(self.db.stats)
             cats = st["by_category"]

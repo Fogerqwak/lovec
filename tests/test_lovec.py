@@ -569,3 +569,22 @@ def test_sort_by_price(tmp_path):
     assert prices("sort=price_asc") == [450, 700, 1200, None]
     assert prices("sort=price_desc") == [1200, 700, 450, None]
     assert prices("sort=bogus")[0] in (450, 700, 1200, None)        # невідоме — не падає
+
+
+def test_lead_code_search(tmp_path):
+    from lovec.models import lead_code, parse_code
+    assert lead_code(42) == "L-0042"
+    for s in ("L-0042", "l42", "#42", "L 42", " L-42 ", "/l 42"):
+        assert parse_code(s) == 42, s
+    assert parse_code("Ružinov 42") is None and parse_code("") is None
+    s = Settings(db_path=str(tmp_path / "c.db"), telegram_token=TOKEN, allowed_users=[42], searches=[])
+    c = TestClient(create_app(s, background=False))
+    db = DB(s.db_path)
+    lid = db.save(classify(Listing("bazos", "1", "u1", title="Prenajmem byt", description="Prenajmem byt.")), "s", "predaj")
+    db.set_status(lid, "called")
+    h = {"X-Tg-Init-Data": _init()}
+    # знаходить навіть з вкладки «Нові» і з фільтром «Оренда»
+    got = c.get(f"/api/leads?status=new&deal=prenajom&q=L-{lid:04d}", headers=h).json()
+    assert [r["id"] for r in got] == [lid]
+    from lovec.telegram import render
+    assert f"<code>L-{lid:04d}</code>" in render(db.get(lid))

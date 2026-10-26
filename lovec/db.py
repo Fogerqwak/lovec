@@ -357,7 +357,11 @@ class DB:
         if deal:
             sql += " AND deal=?"
             args.append(deal)
-        if q:
+        from .models import parse_code
+        if q and parse_code(q) is not None:
+            sql += " AND id=?"
+            args.append(parse_code(q))
+        elif q:
             sql += " AND (title LIKE ? OR location LIKE ? OR description LIKE ? OR phones LIKE ? OR note LIKE ?)"
             args += [f"%{q}%"] * 5
         sql += f" ORDER BY {SORTS.get(sort, SORTS['new'])} LIMIT ?"

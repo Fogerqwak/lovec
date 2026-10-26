@@ -45,6 +45,18 @@ class Listing:
         return f"{self.source}:{self.ext_id}"
 
 
+def lead_code(lid: int) -> str:
+    """Короткий ID ліда для CRM: L-0042."""
+    return f"L-{lid:04d}"
+
+
+def parse_code(text: str) -> int | None:
+    """«L-0042», «l42», «#42», «L 42» -> 42."""
+    import re
+    m = re.fullmatch(r"\s*(?:/l\s*|#|l\s*-?\s*)(\d{1,7})\s*", text or "", re.I)
+    return int(m.group(1)) if m else None
+
+
 STATUSES = {
     "new": "🆕 Новий",
     "called": "📞 Подзвонив",

@@ -149,7 +149,17 @@ def create_app(base: Settings | None = None, background: bool = True) -> FastAPI
               districts: str = "", okresy: str = "", types: str = "", rooms: str = "", area_min: float | None = None,
               area_max: float | None = None, price_min: float | None = None, price_max: float | None = None,
               sort: str = "new"):
+        from .models import parse_code
         from .props import passes
+        if parse_code(q) is not None:
+            # пошук за ID ігнорує вкладку/округ/фільтри — щоб знайти лід з CRM будь-де
+            r = db.get(parse_code(q))
+            rows = [r] if r else []
+            for x in rows:
+                x["reasons"] = json.loads(x.get("reasons") or "[]")
+                ai = json.loads(x["ai"]) if x.get("ai") else None
+                x["ai"] = {"tldr": ai.get("tldr"), "verdict": (ai.get("seller") or {}).get("verdict")} if ai else None
+            return rows
         rows = db.leads(category or None, None, deal or None, q or None,
                         districts=[d for d in districts.split(",") if d] or None,
                         okresy=[o for o in okresy.split(",") if o] or None, limit=1000, sort=sort)

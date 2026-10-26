@@ -109,6 +109,9 @@
   .verdict.owner { background: color-mix(in srgb, var(--green) 20%, transparent); }
   .verdict.agent { background: color-mix(in srgb, var(--red) 20%, transparent); }
   .verdict.unclear { background: color-mix(in srgb, var(--yellow) 22%, transparent); }
+  .lid { font-variant-numeric: tabular-nums; color: var(--ink); font-weight: 600; }
+  .lid-btn { font: inherit; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--ink);
+    background: var(--soft); border-radius: 6px; padding: 2px 8px; }
   .lead .tl { font-size: 13px; color: var(--hint); margin-top: 6px; }
   .warn { background: color-mix(in srgb, var(--yellow) 16%, transparent); border-radius: 10px; padding: 10px 12px;
     font-size: 14px; margin-top: 10px; }
@@ -167,7 +170,7 @@
   <div class="chips" id="tabs"></div>
   <div class="chips dist" id="dist"></div>
   <div class="bar">
-    <input type="search" id="q" placeholder="Вулиця, телефон, нотатка…">
+    <input type="search" id="q" placeholder="Вулиця, телефон, нотатка або L-0042">
     <select id="deal"><option value="prenajom">Оренда</option><option value="predaj">Продаж</option><option value="">Все</option></select>
     <button class="fbtn" id="fbtn">Фільтр</button>
   </div>
@@ -264,6 +267,7 @@ let tab = TABS[0], leads = [], current = null;
 // ---------- helpers ----------
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const code = id => "L-" + String(id).padStart(4, "0");
 const fphone = p => p.length === 12 ? `+${p.slice(0,3)} ${p.slice(3,6)} ${p.slice(6,9)} ${p.slice(9)}` : p;
 const ago = iso => {
   if (!iso) return "—";
@@ -306,7 +310,7 @@ async function loadLeads() {
   try { leads = await api("/api/leads?" + p); } catch (e) { $("#list").innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
   $("#list").innerHTML = leads.length ? leads.map(r => `
     <button class="lead ${r.category} ${DONE.includes(r.status) ? "dim" : ""}" data-id="${r.id}">
-      <div class="top"><span class="dot"></span>${SRC[r.source] || r.source} · ${r.deal === "predaj" ? "продаж" : "оренда"} · ${ago(r.first_seen)}</div>
+      <div class="top"><span class="dot"></span><b class="lid">${code(r.id)}</b> · ${SRC[r.source] || r.source} · ${r.deal === "predaj" ? "продаж" : "оренда"} · ${ago(r.first_seen)}</div>
       <div class="t">${esc(r.title || "без назви")}</div>
       <div class="tags">
         ${r.price_text ? `<span class="tag price">${esc(r.price_text)}</span>` : ""}
@@ -415,7 +419,7 @@ async function openLead(id) {
   const r = current, phones = (r.phones || "").split(",").filter(Boolean);
   el.innerHTML = `
     <div class="sec ${r.category}" style="margin-top:0">
-      <div class="top muted" style="display:flex;gap:6px;align-items:center"><span class="dot"></span>${CAT[r.category]} · ${SRC[r.source]} · ${r.deal === "predaj" ? "продаж" : "оренда"} · ${ago(r.first_seen)}</div>
+      <div class="top muted" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><button class="lid-btn" data-copy="${code(r.id)}">${code(r.id)} ⧉</button><span class="dot"></span>${CAT[r.category]} · ${SRC[r.source]} · ${r.deal === "predaj" ? "продаж" : "оренда"} · ${ago(r.first_seen)}</div>
       <div class="dt">${esc(r.title || "без назви")}</div>
       <div class="tags">
         ${r.price_text ? `<span class="tag price">${esc(r.price_text)}</span>` : ""}
