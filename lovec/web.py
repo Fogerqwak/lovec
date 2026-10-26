@@ -68,6 +68,7 @@ def create_app(base: Settings | None = None, background: bool = True) -> FastAPI
     db.migrate_rooms_pack()
     db.migrate_owner_portals()
     db.migrate_topreality()
+    db.migrate_bezrealitky()
     from .db import reclassify_all
     reclassify_all(db, base.phone_reuse_limit, base.private_max)
     from .db import mark_seekers

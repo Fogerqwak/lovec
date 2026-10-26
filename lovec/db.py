@@ -218,6 +218,20 @@ class DB:
         self.set_kv("props_v2", "")
         self._backfill_props()
 
+    BEZREALITKY = [  # посилання від користувача (без #фрагмента — його сервер однаково не бачить)
+        ("Bezrealitky · byty prenájom BA", "https://www.bezrealitky.sk/vyhladat?boundaryPoints=%5B%7B%22lat%22%3A48.15319553645588%2C%22lng%22%3A17.129613224532534%7D%2C%7B%22lat%22%3A48.15319553645588%2C%22lng%22%3A17.08696017546592%7D%2C%7B%22lat%22%3A48.13380940876766%2C%22lng%22%3A17.08696017546592%7D%2C%7B%22lat%22%3A48.13380940876766%2C%22lng%22%3A17.129613224532534%7D%2C%7B%22lat%22%3A48.15319553645588%2C%22lng%22%3A17.129613224532534%7D%5D&estateType=BYT&location=exact&offerType=PRONAJEM&osm_value=Bratislava%2C+okres+Bratislava+I%2C+Bratislavsk%C3%BD+kraj%2C+812+45%2C+Slovensko&regionOsmIds=N530544342&currency=EUR", "prenajom"),
+        ("Bezrealitky · byty predaj BA", "https://www.bezrealitky.sk/vyhladat?boundaryPoints=%5B%7B%22lat%22%3A48.15319553645588%2C%22lng%22%3A17.129613224532534%7D%2C%7B%22lat%22%3A48.15319553645588%2C%22lng%22%3A17.08696017546592%7D%2C%7B%22lat%22%3A48.13380940876766%2C%22lng%22%3A17.08696017546592%7D%2C%7B%22lat%22%3A48.13380940876766%2C%22lng%22%3A17.129613224532534%7D%2C%7B%22lat%22%3A48.15319553645588%2C%22lng%22%3A17.129613224532534%7D%5D&estateType=BYT&location=exact&offerType=PRODEJ&osm_value=Bratislava%2C+okres+Bratislava+I%2C+Bratislavsk%C3%BD+kraj%2C+812+45%2C+Slovensko&regionOsmIds=N530544342&currency=EUR", "predaj"),
+    ]
+
+    def migrate_bezrealitky(self) -> None:
+        if self.get_kv("bezrealitky_v1") == "1":
+            return
+        have = {r["url"] for r in self.searches()}
+        for name, url, deal in self.BEZREALITKY:
+            if url not in have:
+                self.add_search(name, "bezrealitky", url, deal)
+        self.set_kv("bezrealitky_v1", "1")
+
     def migrate_owner_portals(self) -> None:
         if self.get_kv("owner_pack_v1") == "1":
             return

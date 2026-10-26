@@ -35,6 +35,7 @@ def main() -> None:
     db.migrate_rooms_pack()
     db.migrate_owner_portals()
     db.migrate_topreality()
+    db.migrate_bezrealitky()
     s = effective(base, db)
 
     if a.cmd == "serve":
