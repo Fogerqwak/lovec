@@ -157,6 +157,10 @@
   nav button .i { font-size: 20px; line-height: 1; filter: grayscale(1); opacity: .7; }
   nav button.on { color: var(--btn); }
   nav button.on .i { filter: none; opacity: 1; }
+  #login { position: fixed; inset: 0; background: var(--bg); z-index: 50; display: flex; align-items: center;
+    justify-content: center; padding: 16px; }
+  .login-box { background: var(--card); border-radius: 16px; padding: 22px; width: 100%; max-width: 340px; }
+  .login-box .err { color: var(--danger); font-size: 13px; min-height: 18px; margin-top: 8px; }
   .toast { position: fixed; left: 50%; bottom: 84px; transform: translateX(-50%); background: rgba(0,0,0,.82);
     color: #fff; padding: 9px 14px; border-radius: 10px; font-size: 14px; z-index: 20; opacity: 0;
     transition: opacity .2s; pointer-events: none; max-width: 90vw; }
@@ -231,6 +235,7 @@
   <div class="muted" style="margin:8px 4px">Нічого не вибрано — пуші з усіх районів. Ліди з інших районів однаково зберігаються і видні в списку.</div>
   <h2>Фільтр ріелторів</h2>
   <div class="group" id="set-filter"></div>
+  <button class="btn danger" id="logout" style="width:100%;margin-top:14px;display:none">Вийти</button>
   <div class="muted" style="margin:8px 4px">Ховаються лише 100% ріелтори: ім'я з real / s.r.o. / maklér, профіль агентства, «RK ponúka» або телефон, який ти позначив «Це ріелтор». Решта приходить 🟢 або 🟡 з поясненням.</div>
 </section>
 
@@ -277,11 +282,38 @@ const ago = iso => {
 };
 function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.add("on"); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("on"), 2200); }
 async function api(path, opts = {}) {
-  const headers = { "Content-Type": "application/json", ...(inTg ? { "X-Tg-Init-Data": tg.initData } : {}) };
+  const auth = inTg ? { "X-Tg-Init-Data": tg.initData }
+             : (LS.get("lovec.auth", "") ? { Authorization: "Basic " + LS.get("lovec.auth", "") } : {});
+  const headers = { "Content-Type": "application/json", ...auth };
   const r = await fetch(path, { ...opts, headers, body: opts.body ? JSON.stringify(opts.body) : undefined });
+  if (r.status === 401 && !inTg) { showLogin(); throw new Error("Потрібен вхід"); }
   if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.detail || `HTTP ${r.status}`); }
   return r.json();
 }
+
+// ---------- вхід з браузера (у Telegram не потрібен) ----------
+function showLogin(err = "") {
+  if ($("#login")) { if (err) $("#login .err").textContent = err; return; }
+  const d = document.createElement("div");
+  d.id = "login";
+  d.innerHTML = `<form class="login-box">
+      <div class="dt" style="margin:0 0 4px">Lovec</div>
+      <div class="muted" style="margin-bottom:14px">Вхід (логін і пароль з .env на сервері)</div>
+      <input name="u" autocomplete="username" placeholder="Логін" value="admin">
+      <input name="p" type="password" autocomplete="current-password" placeholder="Пароль" style="margin-top:8px">
+      <div class="err">${esc(err)}</div>
+      <button class="btn" style="width:100%;margin-top:12px">Увійти</button></form>`;
+  document.body.appendChild(d);
+  d.querySelector("[name=p]").focus();
+  d.querySelector("form").onsubmit = async e => {
+    e.preventDefault();
+    const f = e.target, b64 = btoa(unescape(encodeURIComponent(f.u.value + ":" + f.p.value)));
+    const r = await fetch("/api/me", { headers: { Authorization: "Basic " + b64 } });
+    if (r.ok) { LS.set("lovec.auth", b64); location.reload(); }
+    else { d.querySelector(".err").textContent = "Невірний логін або пароль"; f.p.value = ""; f.p.focus(); }
+  };
+}
+function logout() { LS.set("lovec.auth", ""); location.reload(); }
 function openExternal(url) { inTg ? tg.openLink(url) : window.open(url, "_blank"); }
 
 // ---------- navigation ----------
@@ -637,6 +669,7 @@ $("#run").onclick = async () => { haptic("medium"); const r = await api("/api/ru
 // ---------- start ----------
 function route() { const m = location.hash.match(/^#lead-(\d+)/); if (m) openLead(m[1]); }
 window.addEventListener("hashchange", () => { if (location.hash.startsWith("#lead-")) route(); else if ($("#s-lead").classList.contains("on")) show("leads"); });
+if (!inTg) { $("#logout").style.display = ""; $("#logout").onclick = logout; }
 renderTabs();
 fillFilterForm();
 api("/api/settings").then(s => { AI_ON = !!s.ai; }).catch(() => {})

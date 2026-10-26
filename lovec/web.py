@@ -124,7 +124,7 @@ def create_app(base: Settings | None = None, background: bool = True) -> FastAPI
                 secrets.compare_digest(cred.username, base.dashboard_user) and \
                 secrets.compare_digest(cred.password, base.dashboard_password):
             return {"via": "basic", "id": 0, "name": cred.username}
-        raise HTTPException(401, headers={"WWW-Authenticate": "Basic"})
+        raise HTTPException(401, "Потрібен вхід")
 
     A = [Depends(auth)]
 
