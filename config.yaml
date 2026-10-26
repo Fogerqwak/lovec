@@ -83,9 +83,5 @@ searches:
     deal: prenajom
 
   # ---------- TopReality.sk ----------
-  # Найпростіше: відкрий сайт, вистав фільтри (Bratislava, byty, predaj,
-  # zoradiť od najnovších), скопіюй URL з адресного рядка сюди.
-  - name: "TopReality · byty predaj BA"
-    source: topreality
-    url: "https://www.topreality.sk/vyhladavanie-nehnutelnosti.html?form=1&type%5B%5D=101&type%5B%5D=102&type%5B%5D=103&type%5B%5D=104&type%5B%5D=105&searchType=string&obec=d100%2Cd101%2Cd102%2Cd103%2Cd104&order=1"
-    deal: predaj
+  # Готового пошуку нема: відкрий topreality.sk, вистав Bratislava + typ + «pridania (najnovšie)»,
+  # скопіюй URL з адресного рядка і додай у Mini App → Пошуки.
