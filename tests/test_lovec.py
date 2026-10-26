@@ -687,3 +687,14 @@ def test_topreality_migration_and_commercial(tmp_path):
     assert detect_type("Na prenájom svetlý nebytový priestor na Laurinskej ulici", "") == "other"
     assert detect_type("Prenájom 2-izbový byt s garážou", "") == "byt"
     assert not passes({"prop_type": "other", "deal": "prenajom"}, {"types": ["byt"]})
+
+
+def test_bezrealitky_migration_replaces_center_only(tmp_path):
+    db = DB(str(tmp_path / "bz.db"))
+    db.add_search("Bezrealitky · byty prenájom BA", "bezrealitky",
+                  "https://www.bezrealitky.sk/vyhladat?boundaryPoints=%5B%7B%22lat%22%3A48.15319553645588%7D%5D&offerType=PRONAJEM", "prenajom")
+    db.set_kv("bezrealitky_v2", "")
+    db.migrate_bezrealitky()
+    bz = [r for r in db.searches() if r["source"] == "bezrealitky"]
+    assert len(bz) == 2 and all("R388265" in r["url"] for r in bz)
+    assert sorted(r["deal"] for r in bz) == ["predaj", "prenajom"]
