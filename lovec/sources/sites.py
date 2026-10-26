@@ -177,6 +177,23 @@ class TopReality(Source):
     detail_re = re.compile(r"https?://(?:www\.)?topreality\.sk/[^\s\"'?#]*?-r(?P<id>\d{5,})\.html")
     title_selectors = ["h1"]
 
+    def page_url(self, url: str, page: int) -> str | None:
+        """vyhladavanie-nehnutelnosti.html?q → vyhladavanie-nehnutelnosti-2.html?q"""
+        return re.sub(r"vyhladavanie-nehnutelnosti(?:-\d+)?\.html", f"vyhladavanie-nehnutelnosti-{page}.html", url)
+
+    def next_page(self, html: str, url: str, page_no: int) -> str | None:
+        return self.page_url(url, page_no + 1)
+
+    def list_dates(self, html: str) -> list:
+        from datetime import date
+        out = []
+        for d, m, y in re.findall(r"\b(\d{1,2})\.(\d{1,2})\.(20\d{2})\b", html):
+            try:
+                out.append(date(int(y), int(m), int(d)))
+            except ValueError:
+                pass
+        return out
+
     def enrich(self, soup, l, page_text):
         if "sukromna_osoba" in l.page_markers:
             l.site_private_flag = True

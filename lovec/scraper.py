@@ -142,6 +142,8 @@ def run_once(s: Settings, db: DB, notify: Notifier | None = None) -> dict:
                        (l.category == "suspicious" and s.notify_suspicious)
                 if want and s.notify_districts:
                     want = (l.district in s.notify_districts) if l.district else s.notify_unknown_district
+                if want and l.prop_type == "other" and "other" not in (s.notify_filter or {}).get("types", []):
+                    want = False  # офіси/склади/гаражі — не наша тема, якщо явно не попросили
                 if want and s.notify_filter:
                     want = props.passes(db.get(lid), s.notify_filter)
                 if l.category != "agency" and s.ai_auto and s.ai_api_key and not ai_blocked:

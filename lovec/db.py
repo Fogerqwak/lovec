@@ -176,6 +176,7 @@ class DB:
         self.set_kv("searches_seeded", "1")
         self.set_kv("rent_pack_v1", "1")  # свіжа установка: пошуки вже з config.yaml
         self.set_kv("owner_pack_v1", "1")
+        self.set_kv("topreality_v2", "1")
         self.set_kv("rent_pack_v2", "1")
 
     RENT_PACK = [  # одноразово додається при оновленні (фокус на оренду)
@@ -195,6 +196,27 @@ class DB:
             # битий шаблон TopReality з першої версії — вимикаємо, нормальний додається з Mini App
             c.execute("UPDATE searches SET enabled=0 WHERE source='topreality' AND url LIKE '%obec=d100%'")
         self.set_kv("rent_pack_v1", "1")
+
+    TOPREALITY_RENT = ("https://www.topreality.sk/vyhladavanie-nehnutelnosti.html?form=3&obec=1000000"
+                       "&searchType=string&n_search=search&page=estate")
+    TOPREALITY_SALE = TOPREALITY_RENT.replace("form=3", "form=1")
+
+    def migrate_topreality(self) -> None:
+        if self.get_kv("topreality_v2") == "1":
+            return
+        with self.conn() as c:
+            c.execute("DELETE FROM searches WHERE source='topreality' AND url LIKE '%obec=d100%'")
+        have = {r["url"] for r in self.searches()}
+        if self.TOPREALITY_RENT not in have:
+            self.add_search("TopReality · prenájom BA", "topreality", self.TOPREALITY_RENT, "prenajom")
+        if self.TOPREALITY_SALE not in have:
+            self.add_search("TopReality · predaj BA", "topreality", self.TOPREALITY_SALE, "predaj")
+        self.set_kv("topreality_v2", "1")
+        self._backfill_props_force()
+
+    def _backfill_props_force(self) -> None:
+        self.set_kv("props_v2", "")
+        self._backfill_props()
 
     def migrate_owner_portals(self) -> None:
         if self.get_kv("owner_pack_v1") == "1":

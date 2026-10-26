@@ -8,7 +8,9 @@ import re
 
 from .classify import fold
 
-TYPES = {"byt": "Квартира", "izba": "Кімната", "dom": "Будинок"}
+TYPES = {"byt": "Квартира", "izba": "Кімната", "dom": "Будинок", "other": "Комерція / інше"}
+COMMERCIAL = re.compile(r"\b(nebytov\w*|kancelari\w*|kancelar\w*|sklad\w*|garaz\w*|parkovac\w* (miest|stat)\w*|"
+                        r"obchodn\w* priestor\w*|prevadzk\w*|reštaur\w*|restaur\w*|pozem\w*|halu\b|hala\b|ordinaci\w*)")
 
 # «v 4-izbovom byte», «v 3i byte», «v rodinnom dome» — кімната ВСЕРЕДИНІ квартири/будинку
 IN_FLAT = r"v (\d[,.]?5? ?-? ?(izb\w*|i)|jedno\w*|dvoj\w*|troj\w*|styr\w*|pat\w*|velk\w*|zdielan\w*|spolocn\w*) ?(byte|bytu|dome)\b"
@@ -30,6 +32,9 @@ AREA_LABEL = re.compile(r"(?:plocha|vymera|rozloha|uzitkov\w*)[^0-9]{0,25}(\d{2,
 
 def detect_type(title: str, desc: str, url: str = "") -> str | None:
     t, d, u = fold(title), fold(desc)[:800], (url or "").lower()
+    # офіс / склад / гараж / ділянка — не житло (у заголовку, і там нема «byt»)
+    if COMMERCIAL.search(t) and not re.search(r"\b(byt\w*|garsonk\w*|dom\b|rodinn\w* dom|izb[auy])\b", t):
+        return "other"
     if "/podnajom/" in u or ROOM_FOR_RENT.search(t) or ROOM_TITLE.search(t):
         return "izba"
     # заголовок про квартиру («4-izbový byt, Ružinov»), а в тексті одразу «prenajmem izbu v byte»
@@ -80,7 +85,7 @@ def detect_area(title: str, desc: str, prop_type: str | None = None) -> float | 
 
 def enrich(l) -> None:
     l.prop_type = detect_type(l.title, l.description, l.url)
-    l.rooms = detect_rooms(l.title, l.description) if l.prop_type != "izba" else None
+    l.rooms = detect_rooms(l.title, l.description) if l.prop_type not in ("izba", "other") else None
     l.area_m2 = detect_area(l.title, l.description, l.prop_type)
 
 

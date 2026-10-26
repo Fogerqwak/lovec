@@ -670,3 +670,20 @@ def test_owner_portals_links_and_parse():
     # агентство на «безріелторському» порталі однаково ховається
     l2 = classify(Listing("realfree", "x", "u", title="Prenájom bytu", description="Realitná kancelária XY ponúka na prenájom byt."))
     assert l2.category == "agency"
+
+
+def test_topreality_migration_and_commercial(tmp_path):
+    db = DB(str(tmp_path / "t.db"))
+    db.add_search("TopReality · byty predaj BA", "topreality",
+                  "https://www.topreality.sk/vyhladavanie-nehnutelnosti.html?form=1&type%5B%5D=101&obec=d100%2Cd101&order=1", "predaj")
+    db.set_kv("topreality_v2", "")
+    db.migrate_topreality()
+    tr = [r for r in db.searches() if r["source"] == "topreality"]
+    assert sorted(r["deal"] for r in tr) == ["predaj", "prenajom"]          # битий видалено, два робочі додано
+    assert all("obec=1000000" in r["url"] for r in tr)
+    db.migrate_topreality()
+    assert len([r for r in db.searches() if r["source"] == "topreality"]) == 2
+    from lovec.props import detect_type, passes
+    assert detect_type("Na prenájom svetlý nebytový priestor na Laurinskej ulici", "") == "other"
+    assert detect_type("Prenájom 2-izbový byt s garážou", "") == "byt"
+    assert not passes({"prop_type": "other", "deal": "prenajom"}, {"types": ["byt"]})

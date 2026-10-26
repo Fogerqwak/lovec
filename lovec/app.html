@@ -372,7 +372,7 @@ $("#deal").value = LS.get("lovec.deal", "prenajom");
 $("#deal").onchange = () => { LS.set("lovec.deal", $("#deal").value); fillFilterForm(); loadLeads(); };
 
 // ---------- фільтр: тип, кімнати, площа, ціна ----------
-const TYPE_L = { byt: "Квартира", izba: "Кімната", dom: "Будинок" };
+const TYPE_L = { byt: "Квартира", izba: "Кімната", dom: "Будинок", other: "Комерція" };
 const SORT_L = { new: "Найновіші", price_asc: "Дешевші ↑", price_desc: "Дорожчі ↓", area_desc: "Більша площа", ppm_asc: "Дешевше за м²" };
 const ROOM_L = { "1": "Гарсоньєра / 1", "2": "2", "3": "3", "4+": "4+" };
 let F = LS.get("lovec.filter", {});
@@ -395,6 +395,7 @@ function describeFilter(f) {
 function specTags(r) {
   const out = [];
   if (r.prop_type === "izba") out.push("кімната");
+  else if (r.prop_type === "other") out.push("комерція");
   else if (r.rooms) out.push(`${r.rooms}-кімн.` + (r.prop_type === "dom" ? " будинок" : ""));
   else if (r.prop_type === "dom") out.push("будинок");
   if (r.area_m2) out.push(`${r.area_m2} м²`);

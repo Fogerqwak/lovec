@@ -83,5 +83,12 @@ searches:
     deal: prenajom
 
   # ---------- TopReality.sk ----------
-  # Готового пошуку нема: відкрий topreality.sk, вистав Bratislava + typ + «pridania (najnovšie)»,
-  # скопіюй URL з адресного рядка і додай у Mini App → Пошуки.
+  # Багато агентств і комерції; офіси/склади йдуть як тип «Комерція» і не пушаться
+  - name: "TopReality · prenájom BA"
+    source: topreality
+    url: "https://www.topreality.sk/vyhladavanie-nehnutelnosti.html?form=3&obec=1000000&searchType=string&n_search=search&page=estate"
+    deal: prenajom
+  - name: "TopReality · predaj BA"
+    source: topreality
+    url: "https://www.topreality.sk/vyhladavanie-nehnutelnosti.html?form=1&obec=1000000&searchType=string&n_search=search&page=estate"
+    deal: predaj
