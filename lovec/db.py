@@ -57,6 +57,15 @@ CREATE TABLE IF NOT EXISTS seen_urls (
     first_seen TEXT
 );
 CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT);
+CREATE TABLE IF NOT EXISTS backfill_queue (
+    key TEXT PRIMARY KEY,
+    url TEXT NOT NULL,
+    source TEXT NOT NULL,
+    ext_id TEXT NOT NULL,
+    search_name TEXT,
+    deal TEXT,
+    added_at TEXT
+);
 CREATE TABLE IF NOT EXISTS searches (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
@@ -94,7 +103,8 @@ class DB:
                 c.execute("ALTER TABLE listings ADD COLUMN ai TEXT")
             if "district" not in cols:
                 c.execute("ALTER TABLE listings ADD COLUMN district TEXT")
-            for col, typ in (("prop_type", "TEXT"), ("rooms", "REAL"), ("area_m2", "REAL"), ("okres", "TEXT")):
+            for col, typ in (("prop_type", "TEXT"), ("rooms", "REAL"), ("area_m2", "REAL"), ("okres", "TEXT"),
+                             ("posted_at", "TEXT"), ("backlog", "INTEGER DEFAULT 0")):
                 if col not in cols:
                     c.execute(f"ALTER TABLE listings ADD COLUMN {col} {typ}")
         self._backfill_districts()
@@ -267,13 +277,13 @@ class DB:
             c.execute(
                 """INSERT INTO listings(key,source,ext_id,url,search_name,deal,title,price_eur,price_text,
                        location,description,seller_name,phones,seller_listing_count,score,category,reasons,
-                       wants_no_rk,first_seen,updated_at,district,prop_type,rooms,area_m2,okres)
-                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                       wants_no_rk,first_seen,updated_at,district,prop_type,rooms,area_m2,okres,posted_at,backlog)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                    ON CONFLICT(key) DO NOTHING""",
                 (l.key, l.source, l.ext_id, l.url, search_name, deal, l.title, l.price_eur, l.price_text,
                  l.location, l.description[:5000], l.seller_name, ",".join(l.phones), l.seller_listing_count,
                  l.score, l.category, json.dumps(l.reasons, ensure_ascii=False), int(l.wants_no_rk), now(), now(),
-                 l.district, l.prop_type, l.rooms, l.area_m2, l.okres),
+                 l.district, l.prop_type, l.rooms, l.area_m2, l.okres, l.posted_at, int(l.backlog)),
             )
             row = c.execute("SELECT id FROM listings WHERE key=?", (l.key,)).fetchone()
             lid = row["id"]
@@ -302,7 +312,40 @@ class DB:
             self.blacklist_listing_phones(lid)
         return dict(r) if r else None
 
-    def delete_listing(self, lid: int) -> dict | None:
+    # ---- черга старих оголошень ----
+    def queue_add(self, items: list[tuple[str, str, str, str, str]]) -> int:
+        """items: (source, ext_id, url, search_name, deal). Пропускає те, що вже є в базі чи видалене."""
+        n = 0
+        with self.conn() as c:
+            for src, ext, url, sname, deal in items:
+                key = f"{src}:{ext}"
+                if c.execute("SELECT 1 FROM listings WHERE key=?", (key,)).fetchone():
+                    continue
+                if c.execute("SELECT 1 FROM seen_urls WHERE url=?", (f"deleted:{key}",)).fetchone():
+                    continue
+                n += c.execute("INSERT OR IGNORE INTO backfill_queue VALUES(?,?,?,?,?,?,?)",
+                               (key, url, src, ext, sname, deal, now())).rowcount
+        return n
+
+    def queue_take(self, n: int) -> list[dict]:
+        with self.conn() as c:
+            # оренда першою
+            return [dict(r) for r in c.execute(
+                "SELECT * FROM backfill_queue ORDER BY deal != 'prenajom', added_at LIMIT ?", (n,))]
+
+    def queue_done(self, key: str) -> None:
+        with self.conn() as c:
+            c.execute("DELETE FROM backfill_queue WHERE key=?", (key,))
+
+    def queue_size(self) -> int:
+        with self.conn() as c:
+            return c.execute("SELECT COUNT(*) n FROM backfill_queue").fetchone()["n"]
+
+    def queue_clear(self) -> None:
+        with self.conn() as c:
+            c.execute("DELETE FROM backfill_queue")
+
+    def delete_listing(self, lid: int, remember: bool = True) -> dict | None:
         """Видаляє лід. URL лишається в seen_urls — тож скрейпер його більше не підтягне."""
         with self.conn() as c:
             r = c.execute("SELECT * FROM listings WHERE id=?", (lid,)).fetchone()
@@ -310,7 +353,8 @@ class DB:
                 return None
             c.execute("INSERT OR IGNORE INTO seen_urls(url, first_seen) VALUES(?,?)", (r["url"], now()))
             # і по id оголошення — якщо сайт змінить slug в URL, воно однаково не повернеться
-            c.execute("INSERT OR IGNORE INTO seen_urls(url, first_seen) VALUES(?,?)", (f"deleted:{r['key']}", now()))
+            if remember:
+                c.execute("INSERT OR IGNORE INTO seen_urls(url, first_seen) VALUES(?,?)", (f"deleted:{r['key']}", now()))
             c.execute("DELETE FROM listing_phones WHERE listing_id=?", (lid,))
             c.execute("DELETE FROM listings WHERE id=?", (lid,))
             return dict(r)
@@ -326,9 +370,12 @@ class DB:
 
     def leads(self, category: str | None = None, status: str | None = None, deal: str | None = None,
               q: str | None = None, limit: int = 300, districts: list[str] | None = None,
-              okresy: list[str] | None = None, sort: str = "new") -> list[dict]:
+              okresy: list[str] | None = None, sort: str = "new", backlog: int | None = None) -> list[dict]:
         sql = "SELECT * FROM listings WHERE 1=1"
         args: list = []
+        if backlog is not None:
+            sql += " AND COALESCE(backlog,0)=?"
+            args.append(int(backlog))
         if okresy:
             named = [o for o in okresy if o != "?"]
             parts = []
@@ -388,6 +435,7 @@ class DB:
             today = c.execute(
                 "SELECT COUNT(*) n FROM listings WHERE category!='agency' AND first_seen >= date('now')").fetchone()["n"]
         return {"by_category": by_cat, "by_status": by_status, "leads_today": today,
+                "backfill_queue": self.queue_size(), "backfill_state": self.get_kv("backfill_state"),
                 "last_run": self.get_kv("last_run"), "last_run_summary": self.get_kv("last_run_summary")}
 
 

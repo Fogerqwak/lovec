@@ -50,6 +50,40 @@ def check_search(search, s: Settings, n_details: int = 1) -> dict:
         f.close()
 
 
+def process_listing(src, fetcher: Fetcher, db: DB, s: Settings, ext_id: str, url: str,
+                    search_name: str, deal: str, backlog: bool = False):
+    """Відкрити деталку, розібрати, класифікувати, зберегти. -> (lid, Listing) або None."""
+    detail = fetcher.get(url)
+    if not detail:
+        return None  # спробуємо наступного разу
+    try:
+        l = src.parse_detail(detail, ext_id, url)
+    except Exception:  # noqa: BLE001 — одне криве оголошення не має валити прохід
+        log.exception("parse fail %s", url)
+        db.mark_seen(url)
+        return None
+
+    kw = dict(phone_reuse_limit=s.phone_reuse_limit, private_max=s.private_max)
+    classify(l, db.phone_usage(l.match_keys, l.key), db.blacklisted(l.match_keys), **kw)
+
+    # Bazoš: якщо схоже на приватника — перевіримо, скільки ще оголошень у цього юзера
+    if isinstance(src, Bazos) and l.category in ("private", "suspicious") and l.extra.get("user_url"):
+        uhtml = fetcher.get(l.extra["user_url"])
+        if uhtml:
+            l.seller_listing_count = Bazos.count_user_listings(uhtml)
+            classify(l, db.phone_usage(l.match_keys, l.key), db.blacklisted(l.match_keys), **kw)
+
+    from . import props
+    from .districts import detect, detect_okres
+    l.district = detect(l.location, l.title, l.description)
+    l.okres = detect_okres(l.district, l.location)
+    props.enrich(l)
+    l.backlog = backlog
+    lid = db.save(l, search_name, deal)
+    db.mark_seen(url)
+    return lid, l
+
+
 def run_once(s: Settings, db: DB, notify: Notifier | None = None) -> dict:
     fetcher = Fetcher(s.request_delay_seconds)
     silent = s.first_run_silent and db.get_kv("first_run_done") != "1"
@@ -96,37 +130,13 @@ def run_once(s: Settings, db: DB, notify: Notifier | None = None) -> dict:
                     continue
 
                 budget -= 1
-                detail = fetcher.get(url)
-                if not detail:
-                    continue  # спробуємо наступного разу
-                try:
-                    l = src.parse_detail(detail, ext_id, url)
-                except Exception:  # noqa: BLE001 — одне криве оголошення не має валити прохід
-                    log.exception("parse fail %s", url)
-                    db.mark_seen(url)
+                res = process_listing(src, fetcher, db, s, ext_id, url, search.name, search.deal)
+                if res is None:
                     continue
-
-                kw = dict(phone_reuse_limit=s.phone_reuse_limit, private_max=s.private_max,
-                          suspicious_max=s.suspicious_max)
-                classify(l, db.phone_usage(l.match_keys, l.key), db.blacklisted(l.match_keys), **kw)
-
-                # Bazoš: якщо схоже на приватника — перевіримо, скільки ще оголошень у цього юзера
-                if isinstance(src, Bazos) and l.category != "agency" and l.extra.get("user_url"):
-                    uhtml = fetcher.get(l.extra["user_url"])
-                    if uhtml:
-                        l.seller_listing_count = Bazos.count_user_listings(uhtml)
-                        classify(l, db.phone_usage(l.match_keys, l.key), db.blacklisted(l.match_keys), **kw)
-
-                from . import props
-                from .districts import detect
-                l.district = detect(l.location, l.title, l.description)
-                from .districts import detect_okres
-                l.okres = detect_okres(l.district, l.location)
-                props.enrich(l)
-                lid = db.save(l, search.name, search.deal)
-                db.mark_seen(url)
+                lid, l = res
                 summary["new"] += 1
                 summary[l.category] += 1
+                from . import props
 
                 want = (l.category == "private" and s.notify_private) or \
                        (l.category == "suspicious" and s.notify_suspicious)

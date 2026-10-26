@@ -25,6 +25,8 @@ class Listing:
     prop_type: str | None = None  # byt | izba | dom
     rooms: float | None = None
     area_m2: float | None = None
+    posted_at: str | None = None  # дата публікації, якщо сайт її показує
+    backlog: bool = False          # підтягнуте зі старих (без пушу)
 
     # Заповнює класифікатор
     score: int = 0

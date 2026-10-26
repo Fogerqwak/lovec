@@ -588,3 +588,52 @@ def test_lead_code_search(tmp_path):
     assert [r["id"] for r in got] == [lid]
     from lovec.telegram import render
     assert f"<code>L-{lid:04d}</code>" in render(db.get(lid))
+
+
+# ---------- догрузка старих ----------
+
+def test_backfill_collect_and_process(tmp_path, monkeypatch):
+    from datetime import date, timedelta
+    from lovec import backfill, http as lhttp
+    today = date.today()
+    d = lambda n: (today - timedelta(days=n))
+    fmt = lambda x: f"[{x.day}.{x.month}. {x.year}]"
+    pages = {  # Bazoš: 3 сторінки, третя вся старша за 14 днів
+        "": [(101, d(0)), (102, d(2))],
+        "20/": [(103, d(5)), (104, d(9))],
+        "40/": [(105, d(20)), (106, d(25))],
+        "60/": [(107, d(30))],
+    }
+    detail = {101: d(0), 102: d(2), 103: d(5), 104: d(9), 105: d(20), 106: d(25)}
+    hits = []
+
+    def fake_get(self, url, retries=2):
+        hits.append(url)
+        if "/inzerat/" in url:
+            i = int(url.split("/inzerat/")[1].split("/")[0])
+            return (f"<html><h1 class='nadpisdetail'>Prenajmem 2-izbový byt {i}</h1><div class='popisdetail'>"
+                    f"Prenajmem svoj byt v Petržalke, 55 m2. {fmt(detail[i])}</div>"
+                    f"<p>{fmt(detail[i])}</p></html>")
+        for suffix, items in pages.items():
+            if url.startswith("https://reality.bazos.sk/prenajmu/byt/" + suffix + "?"):
+                return "".join(f'<a href="/inzerat/{i}/x.php">x</a> {fmt(dt)}' for i, dt in items)
+        return None
+    monkeypatch.setattr(lhttp.Fetcher, "get", fake_get)
+
+    s = Settings(db_path=str(tmp_path / "b.db"), request_delay_seconds=(0, 0),
+                 searches=[Search("Bazoš byty", "bazos", "https://reality.bazos.sk/prenajmu/byt/?hlokalita=81101", "prenajom")])
+    db = DB(s.db_path)
+    # 101 вже є в базі (прийшов як свіжий) — повторно не додаємо
+    db.save(classify(Listing("bazos", "101", "https://reality.bazos.sk/inzerat/101/x.php", title="t", description="d")), "s", "prenajom")
+    r = backfill.collect(s, db, days=14)
+    assert r["pages"] == 3                                          # на 3-й сторінці все старе — далі не гортає
+    assert not any("/60/" in h for h in hits)
+    assert db.queue_size() == 5                                     # 102..106, без 101
+    sent = []
+    while db.queue_size():
+        backfill.process_chunk(s, db, 2)
+    rows = db.leads(backlog=1)
+    assert sorted(r["ext_id"] for r in rows) == ["102", "103", "104"]  # 105/106 старші 14 днів — відкинуті
+    assert all(r["backlog"] == 1 and r["posted_at"] for r in rows)
+    assert [r["ext_id"] for r in db.leads(backlog=0)] == ["101"]
+    assert sent == []                                               # без пушів

@@ -222,6 +222,13 @@
     <button class="btn" id="run">Перевірити зараз</button>
   </div>
   <div class="muted" id="lastrun" style="margin:8px 4px 0"></div>
+  <h2>Старі оголошення</h2>
+  <div class="group">
+    <div class="set"><div class="lbl">Підтягнути за останні<small>Тихо, без пушів — у вкладку «🕰 Старі»</small></div>
+      <div class="stepper" id="bf-days"><button data-d="-1">−</button><b>14</b><button data-d="1">+</button></div><span class="muted">дн.</span></div>
+    <div class="set"><button class="btn" id="bf-go">Підтягнути старі</button><button class="btn danger" id="bf-stop" style="flex:none;display:none">Зупинити</button></div>
+    <div class="set muted" id="bf-status" style="display:none"></div>
+  </div>
   <h2>Робота</h2>
   <div class="group" id="set-work"></div>
   <h2>Сповіщення</h2>
@@ -259,7 +266,8 @@ const STATUSES = __STATUSES__;
 const SRC = { bazos: "Bazoš", nehnutelnosti: "Nehnuteľnosti", reality_sk: "Reality.sk", topreality: "TopReality" };
 const CAT = { private: "приватна", suspicious: "можливо RK", agency: "ріелтор 100%", seeker: "шукає житло" };
 const TABS = [
-  { id: "new", label: "Нові", cat: "private,suspicious", status: "new" },
+  { id: "new", label: "Нові", cat: "private,suspicious", status: "new", backlog: "0" },
+  { id: "old", label: "🕰 Старі", cat: "private,suspicious", status: "new", backlog: "1" },
   { id: "work", label: "В роботі", cat: "private,suspicious", status: "called,no_answer,meeting,contract" },
   { id: "all", label: "Всі", cat: "private,suspicious" },
   { id: "closed", label: "Закриті", cat: "private,suspicious,agency", status: "rejected,not_interesting,agent" },
@@ -272,6 +280,8 @@ let tab = TABS[0], leads = [], current = null;
 // ---------- helpers ----------
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const posted = d => { const x = new Date(d + "T12:00:00"); const days = Math.round((Date.now() - x) / 864e5);
+  return days <= 0 ? "сьогодні" : days === 1 ? "вчора" : days < 7 ? `${days} дн. тому` : x.toLocaleDateString("uk-UA", { day: "numeric", month: "short" }); };
 const code = id => "L-" + String(id).padStart(4, "0");
 const fphone = p => p.length === 12 ? `+${p.slice(0,3)} ${p.slice(3,6)} ${p.slice(6,9)} ${p.slice(9)}` : p;
 const ago = iso => {
@@ -337,12 +347,12 @@ $("#tabs").onclick = e => { const t = TABS.find(x => x.id === e.target.closest("
 
 async function loadLeads() {
   const p = new URLSearchParams({ category: tab.cat, status: tab.status || "", deal: $("#deal").value, q: $("#q").value,
-    okresy: [...selO].join(","), ...filterParams(F) });
+    okresy: [...selO].join(","), backlog: tab.backlog || "", ...filterParams(F) });
   loadDistricts();
   try { leads = await api("/api/leads?" + p); } catch (e) { $("#list").innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
   $("#list").innerHTML = leads.length ? leads.map(r => `
     <button class="lead ${r.category} ${DONE.includes(r.status) ? "dim" : ""}" data-id="${r.id}">
-      <div class="top"><span class="dot"></span><b class="lid">${code(r.id)}</b> · ${SRC[r.source] || r.source} · ${r.deal === "predaj" ? "продаж" : "оренда"} · ${ago(r.first_seen)}</div>
+      <div class="top"><span class="dot"></span><b class="lid">${code(r.id)}</b> · ${SRC[r.source] || r.source} · ${r.deal === "predaj" ? "продаж" : "оренда"} · ${r.posted_at ? "виставлено " + posted(r.posted_at) : ago(r.first_seen)}${r.backlog ? " · 🕰" : ""}</div>
       <div class="t">${esc(r.title || "без назви")}</div>
       <div class="tags">
         ${r.price_text ? `<span class="tag price">${esc(r.price_text)}</span>` : ""}
@@ -648,6 +658,31 @@ function renderNotifyFilter() {
   };
   $("#nf-clear").onclick = async () => { await saveSetting("notify_filter", {}); renderNotifyFilter(); };
 }
+// ---------- догрузка старих ----------
+let bfDays = LS.get("lovec.bfdays", 14), bfTimer = null;
+function renderBackfill(s) {
+  $("#bf-days b").textContent = bfDays;
+  let st = {}; try { st = JSON.parse(s.backfill_state || "{}"); } catch {}
+  const active = st.phase === "collect" || s.backfill_queue > 0;
+  const box = $("#bf-status");
+  box.style.display = st.phase ? "" : "none";
+  box.textContent = st.phase === "collect" ? `Гортаю сторінки сайтів… переглянуто ${st.pages || 0}, у черзі ${s.backfill_queue}`
+    : s.backfill_queue > 0 ? `Обробляю: лишилось ${s.backfill_queue}, додано ${st.saved || 0} (≈${Math.ceil(s.backfill_queue * 4 / 60)} хв)`
+    : st.phase === "done" ? `Готово: додано ${st.saved || 0} старих оголошень за ${st.days || "?"} дн.${st.error ? " · помилка: " + st.error : ""}` : "";
+  $("#bf-go").disabled = active; $("#bf-stop").style.display = active ? "" : "none";
+  clearTimeout(bfTimer);
+  if (active && $("#s-settings").classList.contains("on")) bfTimer = setTimeout(loadStats, 5000);
+}
+$("#bf-days").onclick = e => { const b = e.target.closest("button"); if (!b) return; haptic();
+  bfDays = Math.min(60, Math.max(1, bfDays + +b.dataset.d)); LS.set("lovec.bfdays", bfDays); $("#bf-days b").textContent = bfDays; };
+$("#bf-go").onclick = async () => {
+  haptic("medium");
+  try { const r = await api("/api/backfill", { method: "POST", body: { days: bfDays } }); toast(r.ok ? "Запустив — можна закривати, працює у фоні" : r.msg); }
+  catch (e) { toast(e.message); }
+  setTimeout(loadStats, 1500);
+};
+$("#bf-stop").onclick = async () => { await api("/api/backfill", { method: "DELETE" }); toast("Зупинено"); loadStats(); };
+
 async function saveSetting(k, v) {
   try { S = await api("/api/settings", { method: "PATCH", body: { [k]: v } }); toast("Збережено"); if (k === "paused") loadStats(); }
   catch (e) { notifyH("error"); toast(e.message); loadSettings(); }
@@ -662,6 +697,7 @@ async function loadStats() {
     <div class="stat"><b>${st.meeting || 0}</b><span>зустрічей</span></div>
     <div class="stat"><b>${st.contract || 0}</b><span>договорів</span></div>`;
   $("#lastrun").textContent = s.paused ? "⏸ На паузі" : s.running ? "Перевіряю сайти…" : `Остання перевірка: ${ago(s.last_run)}`;
+  renderBackfill(s);
   return s;
 }
 $("#run").onclick = async () => { haptic("medium"); const r = await api("/api/run", { method: "POST" }); toast(r.ok ? "Запустив перевірку" : r.msg); setTimeout(loadStats, 800); };

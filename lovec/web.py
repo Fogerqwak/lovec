@@ -98,12 +98,29 @@ def create_app(base: Settings | None = None, background: bool = True) -> FastAPI
                     log.exception("scrape loop")
             await asyncio.sleep(s.interval_minutes * 60)
 
+    async def backfill_loop():
+        """Черга старих: маленькими порціями, між ними лок звільняється для свіжих."""
+        from .backfill import process_chunk
+        while True:
+            await asyncio.sleep(10)
+            if not db.queue_size() or cur().paused:
+                continue
+            async with lock:
+                state["backfill"] = True
+                try:
+                    await asyncio.to_thread(process_chunk, cur(), db, 8)
+                except Exception:  # noqa: BLE001
+                    log.exception("backfill loop")
+                finally:
+                    state["backfill"] = False
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         tasks = []
         if background:
             tg = Telegram(base, db)
-            tasks = [asyncio.create_task(scrape_loop()), asyncio.create_task(tg.poll_forever())]
+            tasks = [asyncio.create_task(scrape_loop()), asyncio.create_task(tg.poll_forever()),
+                     asyncio.create_task(backfill_loop())]
             asyncio.create_task(asyncio.to_thread(tg.setup_menu))
         yield
         for t in tasks:
@@ -148,7 +165,7 @@ def create_app(base: Settings | None = None, background: bool = True) -> FastAPI
     def leads(category: str = "private,suspicious", status: str = "", deal: str = "", q: str = "",
               districts: str = "", okresy: str = "", types: str = "", rooms: str = "", area_min: float | None = None,
               area_max: float | None = None, price_min: float | None = None, price_max: float | None = None,
-              sort: str = "new"):
+              sort: str = "new", backlog: str = ""):
         from .models import parse_code
         from .props import passes
         if parse_code(q) is not None:
@@ -162,7 +179,8 @@ def create_app(base: Settings | None = None, background: bool = True) -> FastAPI
             return rows
         rows = db.leads(category or None, None, deal or None, q or None,
                         districts=[d for d in districts.split(",") if d] or None,
-                        okresy=[o for o in okresy.split(",") if o] or None, limit=1000, sort=sort)
+                        okresy=[o for o in okresy.split(",") if o] or None, limit=1000, sort=sort,
+                        backlog=int(backlog) if backlog in ("0", "1") else None)
         f = {"types": [x for x in types.split(",") if x], "rooms": [x for x in rooms.split(",") if x],
              "area_min": area_min, "area_max": area_max, "price_min": price_min, "price_max": price_max}
         rows = [r for r in rows if passes(r, f)][:300]
@@ -224,6 +242,32 @@ def create_app(base: Settings | None = None, background: bool = True) -> FastAPI
         from .districts import DISTRICTS, OUTSIDE
         counts = db.district_counts(category, deal)
         return {"all": DISTRICTS + [OUTSIDE], "counts": counts}
+
+    @app.post("/api/backfill", dependencies=A)
+    async def backfill_start(p: dict):
+        days = int(p.get("days", 14))
+        if not 1 <= days <= 60:
+            raise HTTPException(400, "Від 1 до 60 днів")
+        if lock.locked():
+            return {"ok": False, "msg": "Зараз іде перевірка — спробуй за хвилину"}
+        from .backfill import collect
+
+        async def go():
+            async with lock:
+                state["running"] = True
+                try:
+                    await asyncio.to_thread(collect, cur(), db, days)
+                finally:
+                    state["running"] = False
+        asyncio.create_task(go())
+        return {"ok": True}
+
+    @app.delete("/api/backfill", dependencies=A)
+    def backfill_stop():
+        db.queue_clear()
+        from .backfill import _state
+        _state(db, phase="done")
+        return {"ok": True}
 
     @app.get("/api/okresy", dependencies=A)
     def okresy(category: str = "private,suspicious", deal: str = ""):

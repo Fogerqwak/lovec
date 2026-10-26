@@ -61,8 +61,31 @@ class Source:
     def canonical(self, url: str, m: re.Match) -> str:
         return url.split("?")[0]
 
-    def next_page(self, html: str, url: str) -> str | None:  # пагінація не потрібна: дивимось лише свіже
-        return None
+    NEXT_TEXT = re.compile(r"^\s*(ďalšia|ďalšie|ďalej|nasledujúca|next|›|»|>)\s*$", re.I)
+
+    def next_page(self, html: str, url: str, page_no: int) -> str | None:
+        """URL наступної сторінки списку (для догрузки старих). page_no — номер поточної (1, 2, …)."""
+        soup = BeautifulSoup(html, "lxml")
+        tag = soup.find("link", rel="next") or soup.find("a", rel="next")
+        if tag and tag.get("href"):
+            return urljoin(url, tag["href"])
+        for a in soup.find_all("a", href=True):
+            txt = clean(a.get_text(" "))
+            if self.NEXT_TEXT.match(txt) or (a.get("aria-label") or "").lower() in ("next", "ďalšia", "nasledujúca strana"):
+                return urljoin(url, a["href"])
+        return self.page_url(url, page_no + 1)
+
+    def page_url(self, url: str, page: int) -> str | None:
+        """Фолбек: ?page=N."""
+        from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+        p = urlsplit(url)
+        q = dict(parse_qsl(p.query))
+        q["page"] = str(page)
+        return urlunsplit((p.scheme, p.netloc, p.path, urlencode(q), ""))
+
+    def list_dates(self, html: str) -> list:
+        """Дати оголошень на сторінці списку, якщо сайт їх показує (для зупинки за N днів)."""
+        return []
 
     # ---------- деталка ----------
     def parse_detail(self, html: str, ext_id: str, url: str) -> Listing:

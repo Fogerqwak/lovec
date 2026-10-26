@@ -68,6 +68,11 @@ class Bazos(Source):
             if p is not None:
                 l.price_eur, l.price_text = p, txt
 
+        # дата публікації «[22.10. 2026]»
+        m = self.DATE_RE.search(page_text)
+        if m:
+            l.posted_at = f"{m.group(3)}-{int(m.group(2)):02d}-{int(m.group(1)):02d}"
+
         # 3) прихований id продавця і посилання на всі його оголошення (сидять в onclick/href)
         raw = html.unescape(str(soup))
         m = re.search(r"idphone=(\d+)", raw) or re.search(r"idmeno=(\d+)", raw)
@@ -76,6 +81,28 @@ class Bazos(Source):
         u = re.search(r"((?:https?://[\w.]*bazos\.sk)?/?[\w./-]*hodnotenie\.php\?[^\"' <>]*id(?:meno|phone)=[^\"' <>]+)", raw)
         if u:
             l.extra["user_url"] = urljoin("https://www.bazos.sk/", u.group(1))
+
+    DATE_RE = re.compile(r"\[\s*(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})\s*\]")
+
+    def page_url(self, url: str, page: int) -> str | None:
+        """https://reality.bazos.sk/prenajmu/byt/?q → …/prenajmu/byt/20/?q (по 20 на сторінку)."""
+        from urllib.parse import urlsplit, urlunsplit
+        p = urlsplit(url)
+        path = re.sub(r"/\d+/?$", "/", p.path.rstrip("/") + "/")
+        return urlunsplit((p.scheme, p.netloc, f"{path}{(page - 1) * 20}/", p.query, ""))
+
+    def next_page(self, html: str, url: str, page_no: int) -> str | None:
+        return self.page_url(url, page_no + 1)  # у Bazoš формат стабільний — не гадаємо по посиланнях
+
+    def list_dates(self, html: str) -> list:
+        from datetime import date
+        out = []
+        for d, m, y in self.DATE_RE.findall(html):
+            try:
+                out.append(date(int(y), int(m), int(d)))
+            except ValueError:
+                pass
+        return out
 
     @staticmethod
     def count_user_listings(html_text: str) -> int:
