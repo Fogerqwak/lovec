@@ -628,7 +628,7 @@ async function loadSettings() {
   $("#set-filter").innerHTML = step("private_max", "Поріг 🟢", "м'який score ≤ цього → 🟢, вище → 🟡", -5, 5)
     + step("phone_reuse_limit", "Повтор продавця", "У скількох оголошеннях → 🟡", 2, 10);
   document.querySelectorAll("#s-settings input[data-k]").forEach(i => i.onchange = () => saveSetting(i.dataset.k, i.checked));
-  document.querySelectorAll("#s-settings .stepper").forEach(st => st.onclick = e => {
+  document.querySelectorAll("#s-settings .stepper[data-k]").forEach(st => st.onclick = e => {
     const b = e.target.closest("button"); if (!b) return;
     const k = st.dataset.k, v = Math.min(+st.dataset.max, Math.max(+st.dataset.min, S[k] + +b.dataset.d));
     if (v === S[k]) return; haptic(); S[k] = v; st.querySelector("b").textContent = v; saveSetting(k, v);
