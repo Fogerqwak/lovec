@@ -104,7 +104,8 @@ class DB:
             if "district" not in cols:
                 c.execute("ALTER TABLE listings ADD COLUMN district TEXT")
             for col, typ in (("prop_type", "TEXT"), ("rooms", "REAL"), ("area_m2", "REAL"), ("okres", "TEXT"),
-                             ("posted_at", "TEXT"), ("backlog", "INTEGER DEFAULT 0"), ("images", "TEXT")):
+                             ("posted_at", "TEXT"), ("backlog", "INTEGER DEFAULT 0"), ("images", "TEXT"),
+                             ("seen_at", "TEXT")):
                 if col not in cols:
                     c.execute(f"ALTER TABLE listings ADD COLUMN {col} {typ}")
         self._backfill_districts()
@@ -410,6 +411,13 @@ class DB:
             c.execute("DELETE FROM listings WHERE id=?", (lid,))
             return dict(r)
 
+    def set_seen(self, lid: int, seen: bool = True) -> None:
+        with self.conn() as c:
+            if seen:  # перший перегляд не перезаписуємо
+                c.execute("UPDATE listings SET seen_at=COALESCE(seen_at, ?) WHERE id=?", (now(), lid))
+            else:
+                c.execute("UPDATE listings SET seen_at=NULL WHERE id=?", (lid,))
+
     def set_images(self, lid: int, urls: list[str]) -> None:
         with self.conn() as c:
             c.execute("UPDATE listings SET images=? WHERE id=?", (json.dumps(urls), lid))
@@ -425,9 +433,12 @@ class DB:
 
     def leads(self, category: str | None = None, status: str | None = None, deal: str | None = None,
               q: str | None = None, limit: int = 300, districts: list[str] | None = None,
-              okresy: list[str] | None = None, sort: str = "new", backlog: int | None = None) -> list[dict]:
+              okresy: list[str] | None = None, sort: str = "new", backlog: int | None = None,
+              unseen: bool = False) -> list[dict]:
         sql = "SELECT * FROM listings WHERE 1=1"
         args: list = []
+        if unseen:
+            sql += " AND seen_at IS NULL"
         if backlog is not None:
             sql += " AND COALESCE(backlog,0)=?"
             args.append(int(backlog))

@@ -68,6 +68,9 @@
   .lead { background: var(--card); border-radius: 14px; padding: 12px 14px; text-align: left; width: 100%;
     display: block; }
   .lead.dim { opacity: .55; }
+  .lead.unseen .t { font-weight: 700; }
+  .lead.unseen { box-shadow: inset 3px 0 0 var(--btn); }
+  .lead.seen .t { font-weight: 500; color: color-mix(in srgb, var(--ink) 75%, transparent); }
   .lead .top { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--hint); }
   .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
   .seeker .dot { background: var(--link); }
@@ -181,6 +184,8 @@
   <div class="fpanel" id="fpanel">
     <div class="k">Сортування</div>
     <div class="chips" id="f-sort"></div>
+    <div class="k">Перегляд</div>
+    <div class="chips" id="f-seen"></div>
     <div class="k">Тип</div>
     <div class="chips" id="f-types"></div>
     <div class="k">Кімнат</div>
@@ -357,7 +362,7 @@ async function loadLeads() {
   loadDistricts();
   try { leads = await api("/api/leads?" + p); } catch (e) { $("#list").innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
   $("#list").innerHTML = leads.length ? leads.map(r => `
-    <button class="lead ${r.category} ${DONE.includes(r.status) ? "dim" : ""}" data-id="${r.id}">
+    <button class="lead ${r.category} ${r.seen_at ? "seen" : "unseen"} ${DONE.includes(r.status) ? "dim" : ""}" data-id="${r.id}">
       <div class="top"><span class="dot"></span><b class="lid">${code(r.id)}</b> · ${SRC[r.source] || r.source} · ${r.deal === "predaj" ? "продаж" : "оренда"} · ${r.posted_at ? "виставлено " + posted(r.posted_at) : ago(r.first_seen)}${r.backlog ? " · 🕰" : ""}</div>
       <div class="t">${esc(r.title || "без назви")}</div>
       <div class="tags">
@@ -365,6 +370,7 @@ async function loadLeads() {
         ${specTags(r)}
         ${r.district ? `<span class="tag d">📍 ${esc(r.district)}</span>` : (r.location ? `<span class="tag">${esc(r.location.slice(0, 28))}</span>` : "")}
         ${r.wants_no_rk ? `<span class="tag">🤫</span>` : ""}
+        ${r.seen_at ? `<span class="tag" title="переглянуто">👁 ${ago(r.seen_at)}</span>` : ""}
         ${r.note ? `<span class="tag">📝</span>` : ""}
         ${r.status !== "new" ? `<span class="tag st">${STATUSES[r.status]}</span>` : ""}
       </div>
@@ -387,6 +393,7 @@ function filterParams(f) {
   if (f.rooms?.length) o.rooms = f.rooms.join(",");
   for (const k of ["area_min", "area_max", "price_min", "price_max"]) if (f[k]) o[k] = f[k];
   if (f.sort && f.sort !== "new") o.sort = f.sort;
+  if (f.unseen) o.unseen = "1";
   return o;
 }
 function describeFilter(f) {
@@ -416,6 +423,7 @@ function fillFilterForm() {
   $("#f-sort").innerHTML = Object.entries(SORT_L).map(([k, v]) => `<button class="chip ${(F.sort || "new") === k ? "on" : ""}" data-v="${k}">${v}</button>`).join("");
   $("#f-sort").onclick = e => { const b = e.target.closest("button"); if (!b) return; haptic();
     $("#f-sort").querySelectorAll(".chip").forEach(x => x.classList.toggle("on", x === b)); };
+  chipSet($("#f-seen"), { "1": "Лише непереглянуті" }, F.unseen ? ["1"] : []);
   chipSet($("#f-types"), TYPE_L, F.types || []);
   chipSet($("#f-rooms"), ROOM_L, F.rooms || []);
   $("#f-amin").value = F.area_min || ""; $("#f-amax").value = F.area_max || "";
@@ -429,7 +437,7 @@ function fillFilterForm() {
 $("#fbtn").onclick = () => { haptic(); fillFilterForm(); $("#fpanel").classList.toggle("open"); };
 const num = id => { const v = parseInt($(id).value.replace(/\D/g, ""), 10); return isNaN(v) ? undefined : v; };
 $("#f-apply").onclick = () => {
-  F = { sort: chipVals($("#f-sort"))[0] || "new", types: chipVals($("#f-types")), rooms: chipVals($("#f-rooms")),
+  F = { sort: chipVals($("#f-sort"))[0] || "new", unseen: chipVals($("#f-seen")).length > 0, types: chipVals($("#f-types")), rooms: chipVals($("#f-rooms")),
         area_min: num("#f-amin"), area_max: num("#f-amax"), price_min: num("#f-pmin"), price_max: num("#f-pmax") };
   LS.set("lovec.filter", F); notifyH(); $("#fpanel").classList.remove("open"); fillFilterForm(); loadLeads();
 };
@@ -496,8 +504,13 @@ async function openLead(id) {
     ${r.description ? `<h2>Опис</h2><div class="sec desc" style="margin-top:0">${esc(r.description)}</div>` : ""}
     <h2>Чому score ${r.score}</h2>
     <div class="sec reasons" style="margin-top:0">${r.reasons.map(esc).join("<br>") || "—"}</div>
-    <button class="btn danger" style="width:100%;margin-top:14px" id="del-lead">🗑 Видалити оголошення</button>
+    <button class="btn ghost" style="width:100%;margin-top:14px" id="unseen-lead">👁 Позначити непереглянутим</button>
+    <button class="btn danger" style="width:100%;margin-top:8px" id="del-lead">🗑 Видалити оголошення</button>
     <div style="height:12px"></div>`;
+  $("#unseen-lead").onclick = async () => {
+    await api(`/api/leads/${r.id}/seen`, { method: "POST", body: { seen: false } });
+    notifyH(); toast("Позначено непереглянутим"); location.hash = ""; show("leads");
+  };
   $("#del-lead").onclick = () => {
     const go = async () => {
       try { await api(`/api/leads/${r.id}`, { method: "DELETE" }); notifyH(); toast("Видалено"); location.hash = ""; show("leads"); }
@@ -686,8 +699,8 @@ function renderNotifyFilter() {
   const d = describeFilter(S.notify_filter || {});
   $("#nf-desc").innerHTML = d ? esc(d) : `<span class="muted">Без фільтра — пуші про все</span>`;
   $("#nf-copy").onclick = async () => {
-    if (!Object.keys(filterParams(F)).filter(k => k !== "sort").length) return toast("Спершу налаштуй «Фільтр» над списком лідів");
-    const f = { ...F }; delete f.sort; for (const k in f) if (f[k] === undefined || (Array.isArray(f[k]) && !f[k].length)) delete f[k];
+    if (!Object.keys(filterParams(F)).filter(k => k !== "sort" && k !== "unseen").length) return toast("Спершу налаштуй «Фільтр» над списком лідів");
+    const f = { ...F }; delete f.sort; delete f.unseen; for (const k in f) if (f[k] === undefined || (Array.isArray(f[k]) && !f[k].length)) delete f[k];
     await saveSetting("notify_filter", f); renderNotifyFilter();
   };
   $("#nf-clear").onclick = async () => { await saveSetting("notify_filter", {}); renderNotifyFilter(); };

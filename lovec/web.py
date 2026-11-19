@@ -169,7 +169,7 @@ def create_app(base: Settings | None = None, background: bool = True) -> FastAPI
     def leads(category: str = "private,suspicious", status: str = "", deal: str = "", q: str = "",
               districts: str = "", okresy: str = "", types: str = "", rooms: str = "", area_min: float | None = None,
               area_max: float | None = None, price_min: float | None = None, price_max: float | None = None,
-              sort: str = "new", backlog: str = ""):
+              sort: str = "new", backlog: str = "", unseen: str = ""):
         from .models import parse_code
         from .props import passes
         if parse_code(q) is not None:
@@ -184,7 +184,7 @@ def create_app(base: Settings | None = None, background: bool = True) -> FastAPI
         rows = db.leads(category or None, None, deal or None, q or None,
                         districts=[d for d in districts.split(",") if d] or None,
                         okresy=[o for o in okresy.split(",") if o] or None, limit=1000, sort=sort,
-                        backlog=int(backlog) if backlog in ("0", "1") else None)
+                        backlog=int(backlog) if backlog in ("0", "1") else None, unseen=unseen == "1")
         f = {"types": [x for x in types.split(",") if x], "rooms": [x for x in rooms.split(",") if x],
              "area_min": area_min, "area_max": area_max, "price_min": price_min, "price_max": price_max}
         rows = [r for r in rows if passes(r, f)][:300]
@@ -208,8 +208,18 @@ def create_app(base: Settings | None = None, background: bool = True) -> FastAPI
         return r
 
     @app.get("/api/leads/{lid}", dependencies=A)
-    def lead(lid: int):
-        return _lead(lid)
+    def lead(lid: int, mark_seen: int = 1):
+        r = _lead(lid)
+        if mark_seen and not r.get("seen_at"):
+            db.set_seen(lid)
+        return r  # seen_at ще старий — картка знає, що це перший перегляд
+
+    @app.post("/api/leads/{lid}/seen", dependencies=A)
+    def lead_seen(lid: int, p: dict):
+        if not db.get(lid):
+            raise HTTPException(404)
+        db.set_seen(lid, bool(p.get("seen", True)))
+        return {"ok": True}
 
     @app.post("/api/leads/{lid}/ai", dependencies=A)
     async def lead_ai(lid: int):

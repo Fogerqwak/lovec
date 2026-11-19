@@ -830,3 +830,21 @@ def test_telegram_photos_albums_access_and_button(tmp_path, monkeypatch):
     assert t.allowed("42") and t.allowed("-100500", user_id=42) and not t.allowed("7", user_id=7)
     kb = tgm.keyboard(lid)["inline_keyboard"]
     assert any(b.get("callback_data") == f"p:a:{lid}" for row in kb for b in row)
+
+
+def test_seen_tracking(tmp_path):
+    s = Settings(db_path=str(tmp_path / "seen.db"), telegram_token=TOKEN, allowed_users=[42], searches=[])
+    c = TestClient(create_app(s, background=False))
+    db = DB(s.db_path)
+    a = db.save(classify(Listing("bazos", "1", "u1", title="Prenajmem byt", description="Prenajmem byt.")), "s", "prenajom")
+    b = db.save(classify(Listing("bazos", "2", "u2", title="Prenajmem byt", description="Prenajmem byt.")), "s", "prenajom")
+    h = {"X-Tg-Init-Data": _init()}
+    assert c.get(f"/api/leads/{a}", headers=h).json()["seen_at"] is None   # перший перегляд
+    first = db.get(a)["seen_at"]
+    assert first
+    c.get(f"/api/leads/{a}", headers=h)
+    assert db.get(a)["seen_at"] == first                                   # не перезаписується
+    assert [r["id"] for r in c.get("/api/leads?unseen=1", headers=h).json()] == [b]
+    assert len(c.get("/api/leads", headers=h).json()) == 2
+    c.post(f"/api/leads/{a}/seen", headers=h, json={"seen": False})
+    assert db.get(a)["seen_at"] is None
