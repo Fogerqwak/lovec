@@ -350,6 +350,44 @@ function show(name) {
 document.querySelector("nav").onclick = e => { const b = e.target.closest("button"); if (b) { haptic(); location.hash = ""; show(b.dataset.s); } };
 tg?.BackButton?.onClick(() => { location.hash = ""; show("leads"); });
 
+// ---------- свайп вправо на картці = назад ----------
+(() => {
+  const el = document.getElementById("s-lead");
+  let x0 = 0, y0 = 0, dx = 0, mode = null;  // null → ще не ясно, "x" — свайп, "y" — скрол
+  el.addEventListener("touchstart", e => {
+    if (e.touches.length !== 1 || e.target.closest("input,textarea,select,.chips")) { mode = "y"; return; }
+    x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; dx = 0; mode = null;
+    el.style.transition = "none";
+  }, { passive: true });
+  el.addEventListener("touchmove", e => {
+    if (mode === "y") return;
+    const mx = e.touches[0].clientX - x0, my = e.touches[0].clientY - y0;
+    if (mode === null && (Math.abs(mx) > 10 || Math.abs(my) > 10))
+      mode = mx > 0 && Math.abs(mx) > Math.abs(my) * 1.5 ? "x" : "y";
+    if (mode !== "x") return;
+    dx = Math.max(0, mx);
+    el.style.transform = `translateX(${dx}px)`;
+    el.style.opacity = String(1 - Math.min(dx / innerWidth, 1) * 0.5);
+  }, { passive: true });
+  const end = () => {
+    if (mode !== "x") { mode = null; return; }
+    mode = null;
+    el.style.transition = "transform .18s ease-out, opacity .18s ease-out";
+    if (dx > Math.min(110, innerWidth * 0.28)) {
+      haptic();
+      el.style.transform = `translateX(${innerWidth}px)`; el.style.opacity = "0";
+      setTimeout(() => {
+        el.style.transition = "none"; el.style.transform = ""; el.style.opacity = "";
+        location.hash = ""; show("leads");
+      }, 170);
+    } else {
+      el.style.transform = ""; el.style.opacity = "";
+    }
+  };
+  el.addEventListener("touchend", end);
+  el.addEventListener("touchcancel", end);
+})();
+
 // ---------- leads ----------
 function renderTabs() {
   $("#tabs").innerHTML = TABS.map(t => `<button class="chip ${t === tab ? "on" : ""}" data-id="${t.id}">${t.label}</button>`).join("");
