@@ -328,12 +328,17 @@ function logout() { LS.set("lovec.auth", ""); location.reload(); }
 function openExternal(url) { inTg ? tg.openLink(url) : window.open(url, "_blank"); }
 
 // ---------- navigation ----------
+// позиція у списку: зберігаємо при відкритті картки, відновлюємо при поверненні
+let listY = 0, curScreen = "leads";
 function show(name) {
+  const back = name === "leads" && curScreen === "lead";
+  if (name === "lead" && curScreen === "leads") listY = window.scrollY;
+  curScreen = name;
   document.querySelectorAll(".screen").forEach(s => s.classList.toggle("on", s.id === "s-" + name));
   document.querySelectorAll("nav button").forEach(b => b.classList.toggle("on", b.dataset.s === name || (name === "lead" && b.dataset.s === "leads")));
-  window.scrollTo(0, 0);
+  window.scrollTo(0, back ? listY : 0);
   if (name === "lead") tg?.BackButton?.show(); else tg?.BackButton?.hide();
-  if (name === "leads") loadLeads();
+  if (name === "leads") loadLeads().then(() => { if (back) window.scrollTo(0, listY); });
   if (name === "searches") loadSearches();
   if (name === "settings") loadSettings();
 }
